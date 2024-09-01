@@ -308,7 +308,7 @@ class IQL(PolicyAlgo, ValueAlgo):
         # log adv-related values
         info["adv/adv"] = adv
         info["adv/adv_weight"] = weights
-
+        
         # Return stats
         return actor_loss, info
 
@@ -346,7 +346,6 @@ class IQL(PolicyAlgo, ValueAlgo):
         # compute weights based on advantage values
         beta = self.algo_config.adv.beta # temprature factor        
         weights = torch.exp(adv / beta)
-
         # clip final weights
         if self.algo_config.adv.use_final_clip is True:
             weights = weights.clamp(-100.0, 100.0)

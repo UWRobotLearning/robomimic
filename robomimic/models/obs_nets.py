@@ -217,7 +217,6 @@ class ObservationEncoder(Module):
             feats (torch.Tensor): flat features of shape [B, D]
         """
         assert self._locked, "ObservationEncoder: @make has not been called yet"
-
         # ensure all modalities that the encoder handles are present
         assert set(self.obs_shapes.keys()).issubset(obs_dict), "ObservationEncoder: {} does not contain all modalities {}".format(
             list(obs_dict.keys()), list(self.obs_shapes.keys())
@@ -399,7 +398,6 @@ class ObservationGroupEncoder(Module):
                     ...
         """
         super(ObservationGroupEncoder, self).__init__()
-
         # type checking
         assert isinstance(observation_group_shapes, OrderedDict)
         assert np.all([isinstance(observation_group_shapes[k], OrderedDict) for k in observation_group_shapes])

@@ -54,7 +54,6 @@ def train(config, device):
     torch.set_num_threads(2)
 
     print("\n============= New Training Run with Config =============")
-    print(config)
     print("")
     log_dir, ckpt_dir, video_dir = TrainUtils.get_exp_dir(config)
 
@@ -124,7 +123,7 @@ def train(config, device):
         ac_dim=shape_meta["ac_dim"],
         device=device,
     )
-    
+
     # save the config as a json file
     with open(os.path.join(log_dir, '..', 'config.json'), 'w') as outfile:
         json.dump(config, outfile, indent=4)

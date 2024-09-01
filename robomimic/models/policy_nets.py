@@ -456,7 +456,6 @@ class GMMActorNetwork(ActorNetwork):
                 obs_modality2: dict
                     ...
         """
-
         # parameters specific to GMM actor
         self.num_modes = num_modes
         self.min_std = min_std
@@ -614,7 +613,6 @@ class RNNActorNetwork(RNN_MIMO_MLP):
                     ...
         """
         self.ac_dim = ac_dim
-
         assert isinstance(obs_shapes, OrderedDict)
         self.obs_shapes = obs_shapes
 

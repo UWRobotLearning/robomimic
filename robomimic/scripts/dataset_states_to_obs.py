@@ -50,6 +50,7 @@ Example usage:
 import os
 import json
 import h5py
+import uuid
 import argparse
 import numpy as np
 from copy import deepcopy
@@ -312,9 +313,22 @@ def dataset_states_to_obs(args):
 
     # global metadata
     data_grp.attrs["total"] = total_samples
-    data_grp.attrs["env_args"] = json.dumps(env.serialize(), indent=4) # environment info
-    print("Wrote {} trajectories to {}".format(len(demos), output_path))
+    # COPY ALL METADATA FROM ORIGINAL
+    for k in f["data"].attrs:
+        data_grp.attrs[k] = f["data"].attrs[k]
 
+    env_args = env.serialize()
+    data_grp.attrs["env_args"] = json.dumps(env_args, indent=4) # environment info
+    data_grp.attrs['reward_type'] = 'dense' if args.shaped else 'sparse' # reward type
+    if 'derived_from' in f['data'].attrs:
+        derived_from = json.loads(f.attrs['derived_from'])
+    else:
+        derived_from = []
+    import ipdb; ipdb.set_trace()
+    data_grp.attrs['derived_from'] = json.dumps(derived_from + [f['data'].attrs['dataset_id']])
+    data_grp.attrs['dataset_id'] = str(uuid.uuid4())
+    print("Wrote {} trajectories to {}".format(len(demos), output_path))
+    
     f.close()
     f_out.close()
 

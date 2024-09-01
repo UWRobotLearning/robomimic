@@ -123,3 +123,6 @@ venv.bak/
 
 # private macros
 macros_private.py
+
+*.hdf5
+*experiments/

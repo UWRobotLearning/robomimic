@@ -426,7 +426,7 @@ class SequenceDataset(torch.utils.data.Dataset):
             index_in_demo=index_in_demo,
             keys=self.dataset_keys,
             num_frames_to_stack=self.n_frame_stack - 1, # note: need to decrement self.n_frame_stack by one
-            seq_length=self.seq_length
+            seq_length=self.seq_length 
         )
 
         # determine goal index

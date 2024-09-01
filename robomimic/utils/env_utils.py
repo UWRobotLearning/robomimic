@@ -225,7 +225,8 @@ def create_env_from_metadata(
         env_name = env_meta["env_name"]
     env_type = get_env_type(env_meta=env_meta)
     env_kwargs = env_meta["env_kwargs"]
-
+    if 'env_name' in env_kwargs:
+        env_name = env_kwargs.pop('env_name')
     env = create_env(
         env_type=env_type,
         env_name=env_name,  
@@ -282,6 +283,8 @@ def create_env_for_data_processing(
     env_name = env_meta["env_name"]
     env_type = get_env_type(env_meta=env_meta)
     env_kwargs = env_meta["env_kwargs"]
+    if 'env_name' in env_kwargs:
+        env_name = env_kwargs['env_name']
     if env_class is None:
         env_class = get_env_class(env_type=env_type)
 

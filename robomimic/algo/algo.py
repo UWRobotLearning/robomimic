@@ -120,7 +120,6 @@ class Algo(object):
         self.ac_dim = ac_dim
         self.device = device
         self.obs_key_shapes = obs_key_shapes
-
         self.nets = nn.ModuleDict()
         self._create_shapes(obs_config.modalities, obs_key_shapes)
         self._create_networks()
