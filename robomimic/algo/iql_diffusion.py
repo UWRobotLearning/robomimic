@@ -57,7 +57,10 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
 
         Networks for this algo: critic (potentially ensemble), actor, value function
         """
-        self.multi_step_method = MultiStepMethod(self.algo_config.multi_step_method)
+        try:
+            self.multi_step_method = MultiStepMethod(self.algo_config.multi_step_method)
+        except RuntimeError:
+            self.multi_step_method = MultiStepMethod.ONE_STEP
 
         # Create nets
         self.nets = nn.ModuleDict()
@@ -182,7 +185,7 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
         To = self.algo_config.horizon.observation_horizon
         Tp = self.algo_config.horizon.prediction_horizon
 
-        input_batch["obs"] = {k: batch["obs"][k][:, :To, :] for k in batch["obs"]}
+        input_batch["obs"] = {k: batch["obs"][k][:, :(To + Tp - 1), :] for k in batch["obs"]}
         # TODO: check this
         input_batch["next_obs"] = {k: batch["next_obs"][k][:, :To, :] for k in batch["next_obs"]}
         input_batch["goal_obs"] = batch.get("goal_obs", None) # goals may not be present
@@ -239,8 +242,10 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
             elif self.multi_step_method == MultiStepMethod.ONE_STEP:
                 # Compute loss for critic(s)
                 critic_losses, vf_loss, critic_info = self._compute_critic_loss(batch)
+                q_pred = critic_info["vf/q_pred"]
+                v_pred = critic_info["vf/v_pred"]
                 # Compute loss for actor
-                actor_loss, actor_info = self._compute_actor_loss(batch, critic_info)
+                actor_loss, actor_info = self._compute_actor_loss(batch, q_pred, v_pred)
 
                 if not validate:
                     # Critic update
@@ -378,10 +383,12 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
     
         info = OrderedDict()
         actions = batch['actions']
+
+        To = self.algo_config.horizon.observation_horizon
         
         # encode obs
         inputs = {
-            'obs': batch["obs"],
+            'obs': {k: batch["obs"][k][:, :To, :] for k in batch["obs"]},
             'goal': batch["goal_obs"]
         }
         for k in self.obs_shapes:
@@ -421,6 +428,8 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
         
         # L2 loss
         bc_loss = F.mse_loss(noise_pred, noise)
+        
+        self.ema.step(self.nets['policy'].parameters())
 
         info["actor/bc_loss"] = bc_loss.mean()
 
@@ -572,8 +581,8 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
 
         # select network
         nets = self.nets
-        if self.ema is not None:
-            nets = self.ema.averaged_model
+        # if self.ema is not None:
+        #     nets = self.ema.averaged_model
 
         # encode obs
         inputs = {
