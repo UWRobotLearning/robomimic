@@ -187,7 +187,7 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
 
         input_batch["obs"] = {k: batch["obs"][k][:, :(To + Tp - 1), :] for k in batch["obs"]}
         # TODO: check this
-        input_batch["next_obs"] = {k: batch["next_obs"][k][:, :To, :] for k in batch["next_obs"]}
+        input_batch["next_obs"] = {k: batch["next_obs"][k][:, :(To + Tp - 1), :] for k in batch["next_obs"]}
         input_batch["goal_obs"] = batch.get("goal_obs", None) # goals may not be present
         input_batch["actions"] = batch["actions"][:, (To - 1):(Tp + To - 1), :]
         input_batch["dones"] = batch["dones"][:, (To - 1):(Tp + To - 1)]
