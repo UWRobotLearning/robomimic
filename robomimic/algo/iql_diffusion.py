@@ -4,6 +4,7 @@ Based off of https://github.com/rail-berkeley/rlkit/blob/master/rlkit/torch/sac/
 (Paper - https://arxiv.org/abs/2110.06169).
 """
 import numpy as np
+import copy
 from collections import OrderedDict
 
 import math
@@ -152,7 +153,8 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
         # setup EMA
         ema = None
         if self.algo_config.ema.enabled:
-            ema = EMAModel(parameters=self.nets.parameters(), power=self.algo_config.ema.power)
+            self.ema_model = copy.deepcopy(self.nets)
+            ema = EMAModel(parameters=self.ema_model.parameters(), power=self.algo_config.ema.power, use_ema_warmup=True)
 
 
         self.noise_scheduler = noise_scheduler
@@ -582,7 +584,7 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
         # select network
         nets = self.nets
         # if self.ema is not None:
-        #     nets = self.ema.averaged_model
+        #     nets = self.ema_model
 
         # encode obs
         inputs = {
@@ -629,6 +631,22 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
         action = naction[:,start:end]
         return action
     
+    def serialize(self):
+        nets_state_dict = super().serialize()
+        if self.ema is not None:
+            ema_state_dict = self.ema.state_dict()
+        
+        return {
+            'nets': nets_state_dict,
+            'ema': ema_state_dict
+        }
+        
+    def deserialize(self, model_dict):
+        nets_dict = model_dict['nets']
+        ema_dict = model_dict['ema']
+        super().deserialize(nets_dict)
+        if ema_dict:
+            self.ema.load_state_dict(ema_dict)
     
 # =================== Vision Encoder Utils =====================
 def replace_submodules(

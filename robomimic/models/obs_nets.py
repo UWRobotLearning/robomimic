@@ -487,6 +487,7 @@ class MIMO_MLP(Module):
         layer_dims,
         layer_func=nn.Linear, 
         activation=nn.ReLU,
+        output_activation=None,
         encoder_kwargs=None,
     ):
         """
@@ -541,6 +542,8 @@ class MIMO_MLP(Module):
 
         # flat encoder output dimension
         mlp_input_dim = self.nets["encoder"].output_shape()[0]
+        
+        output_activation = activation if output_activation is None else output_activation
 
         # intermediate MLP layers
         self.nets["mlp"] = MLP(
@@ -549,7 +552,7 @@ class MIMO_MLP(Module):
             layer_dims=layer_dims[:-1],
             layer_func=layer_func,
             activation=activation,
-            output_activation=activation, # make sure non-linearity is applied before decoder
+            output_activation=output_activation, # make sure non-linearity is applied before decoder
         )
 
         # decoder for output modalities
