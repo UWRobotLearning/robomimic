@@ -434,13 +434,12 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
         self.ema.step(self.nets['policy'].parameters())
 
         info["actor/bc_loss"] = bc_loss.mean()
-
         # compute advantage estimate
         if self.multi_step_method == MultiStepMethod.REPEAT:
-            q_pred = torch.cat(q_pred)
-            v_pred = torch.cat(v_pred)
-            discounts = self.algo_config.discount ** torch.arange(len(q_pred), dtype=torch.float32, device=self.device)
-            adv = torch.sum(discounts * (q_pred - v_pred))
+            q_pred = torch.stack(q_pred)
+            v_pred = torch.stack(v_pred)
+            discounts = self.algo_config.discount ** torch.arange(len(q_pred), dtype=torch.float32, device=self.device).reshape(len(q_pred), 1, 1)
+            adv = torch.sum(discounts * (q_pred - v_pred), dim=0)
         elif self.multi_step_method == MultiStepMethod.ONE_STEP:
             adv = q_pred - v_pred
         
