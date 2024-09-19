@@ -12,7 +12,7 @@
         "save": {
             "enabled": true,
             "every_n_seconds": null,
-            "every_n_epochs": 2,
+            "every_n_epochs": 5,
             "epochs": [],
             "on_best_validation": false,
             "on_best_rollout_return": false,
