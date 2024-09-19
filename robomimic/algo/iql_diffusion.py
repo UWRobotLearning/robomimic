@@ -217,7 +217,7 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
         Tp = self.algo_config.horizon.prediction_horizon
         info = OrderedDict()
 
-        actor_freeze_until_epoch = self.algo_config.policy.freeze_until_epoch
+        actor_freeze_until_epoch = self.algo_config.optim_params.policy.freeze_until_epoch
         if actor_freeze_until_epoch is None:
             actor_freeze_until_epoch = -1
 
