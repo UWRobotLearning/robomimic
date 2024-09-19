@@ -90,7 +90,8 @@
                 },
                 "regularization": {
                     "L2": 0.0
-                }
+                },
+                "freeze_until_epoch": null
             }
         },
         "horizon": {

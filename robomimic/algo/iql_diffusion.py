@@ -84,6 +84,8 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
         # create network object
         noise_pred_net = ConditionalUnet1D(
             input_dim=self.ac_dim,
+            down_dims=self.algo_config.unet.down_dims,
+            diffusion_step_embed_dim=self.algo_config.unet.diffusion_step_embed_dim,
             global_cond_dim=obs_dim*self.algo_config.horizon.observation_horizon
         )
 
@@ -153,9 +155,7 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
         # setup EMA
         ema = None
         if self.algo_config.ema.enabled:
-            self.ema_model = copy.deepcopy(self.nets)
-            ema = EMAModel(parameters=self.ema_model.parameters(), power=self.algo_config.ema.power, use_ema_warmup=True)
-
+            ema = EMAModel(parameters=self.nets.parameters(), power=self.algo_config.ema.power, use_ema_warmup=True)
 
         self.noise_scheduler = noise_scheduler
         self.ema = ema
@@ -217,6 +217,10 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
         Tp = self.algo_config.horizon.prediction_horizon
         info = OrderedDict()
 
+        actor_freeze_until_epoch = self.algo_config.policy.freeze_until_epoch
+        if actor_freeze_until_epoch is None:
+            actor_freeze_until_epoch = -1
+
         # Set the correct context for this training step
         with TorchUtils.maybe_no_grad(no_grad=validate):
             # Always run super call first
@@ -238,7 +242,7 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
                 # Compute loss for actor
                 actor_loss, actor_info = self._compute_actor_loss(batch, q_preds, v_preds)
 
-                if not validate:                
+                if not validate and epoch >= actor_freeze_until_epoch:                
                     # Actor update
                     self._update_actor(actor_loss)
             elif self.multi_step_method == MultiStepMethod.ONE_STEP:
@@ -254,7 +258,8 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
                     self._update_critic(critic_losses, vf_loss)
                     
                     # Actor update
-                    self._update_actor(actor_loss)
+                    if epoch >= actor_freeze_until_epoch:
+                        self._update_actor(actor_loss)
             else:
                 raise NotImplementedError
 
@@ -641,8 +646,12 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
         }
         
     def deserialize(self, model_dict):
-        nets_dict = model_dict['nets']
-        ema_dict = model_dict['ema']
+        try:
+            nets_dict = model_dict['nets']
+            ema_dict = model_dict['ema']
+        except KeyError:
+            super().deserialize(model_dict)
+            return
         super().deserialize(nets_dict)
         if ema_dict:
             self.ema.load_state_dict(ema_dict)

@@ -32,7 +32,8 @@ class IQLDiffusionConfig(BaseConfig):
         self.algo.optim_params.policy.learning_rate.decay_factor = 0.0      # factor to decay LR by (if epoch schedule non-empty)
         self.algo.optim_params.policy.learning_rate.epoch_schedule = []     # epochs where LR decay occurs
         self.algo.optim_params.policy.regularization.L2 = 0.00              # L2 regularization strength
-        
+        self.algo.optim_params.policy.freeze_until_epoch = None             # don't train policy until this epoch
+
         self.algo.multi_step_method = 'one_step'
 
         # unet params
