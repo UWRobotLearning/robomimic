@@ -11,3 +11,4 @@ from robomimic.config.hbc_config import HBCConfig
 from robomimic.config.iris_config import IRISConfig
 from robomimic.config.td3_bc_config import TD3_BCConfig
 from robomimic.config.iql_diffusion_config import IQLDiffusionConfig
+from robomimic.config.discriminator_config import DiscriminatorConfig

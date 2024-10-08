@@ -23,6 +23,46 @@ from robomimic.models.vae_nets import VAE
 from robomimic.models.distributions import TanhWrappedDistribution
 
 
+class Discriminator_MLP(MIMO_MLP):
+    def __init__(self, 
+                obs_shapes, 
+                ac_dim,
+                mlp_layer_dims,
+                goal_shapes=None,
+    ):
+        assert isinstance(obs_shapes, OrderedDict)
+        self.obs_shapes = obs_shapes
+        self.ac_dim = ac_dim
+
+        # set up different observation groups for @MIMO_MLP
+        observation_group_shapes = OrderedDict()
+        observation_group_shapes["obs"] = OrderedDict(self.obs_shapes)
+
+        self._is_goal_conditioned = False
+        if goal_shapes is not None and len(goal_shapes) > 0:
+            assert isinstance(goal_shapes, OrderedDict)
+            self._is_goal_conditioned = True
+            self.goal_shapes = OrderedDict(goal_shapes)
+            observation_group_shapes["goal"] = OrderedDict(self.goal_shapes)
+        else:
+            self.goal_shapes = OrderedDict()
+        
+        output_shapes = OrderedDict(expert=(1))
+        super().__init__(
+            input_obs_group_shapes=observation_group_shapes,
+            output_shapes=output_shapes,
+            layer_dims=mlp_layer_dims,
+            activation=nn.ReLU,
+            output_activation=nn.Sigmoid,
+            layer_func=nn.Linear,
+        )
+    
+    def forward(self, **inputs):
+        enc_outputs = self.nets["encoder"](**inputs)
+        mlp_outputs = self.nets["mlp"](enc_outputs)
+        return mlp_outputs
+    
+
 class ActorNetwork(MIMO_MLP):
     """
     A basic policy network that predicts actions from observations.
