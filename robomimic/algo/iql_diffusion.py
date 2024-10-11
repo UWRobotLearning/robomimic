@@ -272,7 +272,8 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
 
             # Update info
             info.update(actor_info)
-            info.update(critic_info)
+            if not self.algo_config.use_bc:
+                info.update(critic_info)
 
         # Return stats
         return info
