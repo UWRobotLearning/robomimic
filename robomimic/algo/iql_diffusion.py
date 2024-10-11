@@ -450,6 +450,9 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
         
         # compute weights
         weights = self._get_adv_weights(adv)
+        
+        if self.algo_config.use_bc:
+            weights = weights * 0 + 1.0
 
         # compute advantage weighted actor loss. disable gradients through weights
         actor_loss = (bc_loss * weights.detach()).mean()

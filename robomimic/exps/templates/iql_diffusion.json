@@ -150,6 +150,7 @@
             "prediction_type": "epsilon"
         },
         "multi_step_method": "one_step",
+        "use_bc": false,
         "vf_quantile": 0.9
     },
     "observation": {

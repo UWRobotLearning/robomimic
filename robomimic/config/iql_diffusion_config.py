@@ -35,6 +35,7 @@ class IQLDiffusionConfig(BaseConfig):
         self.algo.optim_params.policy.freeze_until_epoch = None             # don't train policy until this epoch
 
         self.algo.multi_step_method = 'one_step'
+        self.algo.use_bc = False
 
         # unet params
         self.algo.unet.enabled = True
