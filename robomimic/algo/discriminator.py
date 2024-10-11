@@ -86,6 +86,18 @@ class Discriminator(PolicyAlgo):
 
             info['preds_on_expert'] = TensorUtils.detach(prediction_on_expert)
             info['preds_on_subopt'] = TensorUtils.detach(prediction_on_subopt)
+
+
+            tp = (info['preds_on_expert']['preds'] > 0.5).float().mean()
+            fp = (info['preds_on_subopt']['preds'] > 0.5).float().mean()
+            tn = (info['preds_on_subopt']['preds'] < 0.5).float().mean()
+            fn = (info['preds_on_expert']['preds'] < 0.5).float().mean()
+            
+            info['tp'] = tp.item()
+            info['fp'] = fp.item()
+            info['tn'] = tn.item()
+            info['fn'] = fn.item()
+
             info["losses"] = TensorUtils.detach(losses)
 
             if not validate:
@@ -168,6 +180,10 @@ class Discriminator(PolicyAlgo):
         """
         log = super().log_info(info)
         log["Loss"] = info["losses"]["prediction_loss"].item()
+        log["TP"] = info["tp"]
+        log["FP"] = info["fp"]
+        log["TN"] = info["tn"]
+        log["FN"] = info["fn"]
         return log
 
     def get_action(self, obs_dict, goal_dict=None):

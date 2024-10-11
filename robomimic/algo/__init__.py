@@ -10,3 +10,4 @@ from robomimic.algo.hbc import HBC
 from robomimic.algo.iris import IRIS
 from robomimic.algo.td3_bc import TD3_BC
 from robomimic.algo.iql_diffusion import IQLDiffusion
+from robomimic.algo.discriminator import Discriminator
