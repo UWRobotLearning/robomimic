@@ -533,15 +533,16 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
         log["actor/bc_loss"] = info["actor/bc_loss"].item()
         log["actor/loss"] = info["actor/loss"].item()
 
-        log["critic/critic1_pred"] = info["critic/critic1_pred"].item()
-        log["critic/critic1_loss"] = info["critic/critic1_loss"].item()
+        if not self.algo_config.use_bc:
+            log["critic/critic1_pred"] = info["critic/critic1_pred"].item()
+            log["critic/critic1_loss"] = info["critic/critic1_loss"].item()
 
-        log["vf/v_loss"] = info["vf/v_loss"].item()
+            log["vf/v_loss"] = info["vf/v_loss"].item()
 
-        self._log_data_attributes(log, info, "vf/q_pred")
-        self._log_data_attributes(log, info, "vf/v_pred")
-        self._log_data_attributes(log, info, "adv/adv")
-        self._log_data_attributes(log, info, "adv/adv_weight")
+            self._log_data_attributes(log, info, "vf/q_pred")
+            self._log_data_attributes(log, info, "vf/v_pred")
+            self._log_data_attributes(log, info, "adv/adv")
+            self._log_data_attributes(log, info, "adv/adv_weight")
 
         return log
 
