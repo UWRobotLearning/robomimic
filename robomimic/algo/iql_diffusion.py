@@ -189,7 +189,8 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
 
         input_batch["obs"] = {k: batch["obs"][k][:, :(To + Tp - 1), :] for k in batch["obs"]}
         # TODO: check this
-        input_batch["next_obs"] = {k: batch["next_obs"][k][:, :(To + Tp - 1), :] for k in batch["next_obs"]}
+        if not self.algo_config.use_bc:
+            input_batch["next_obs"] = {k: batch["next_obs"][k][:, :(To + Tp - 1), :] for k in batch["next_obs"]}
         input_batch["goal_obs"] = batch.get("goal_obs", None) # goals may not be present
         input_batch["actions"] = batch["actions"][:, (To - 1):(Tp + To - 1), :]
         input_batch["dones"] = batch["dones"][:, (To - 1):(Tp + To - 1)]
@@ -231,13 +232,14 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
                 v_preds = []
                 for i in range(Tp):
                     # Compute loss for critic(s)
-                    critic_losses, vf_loss, critic_info = self._compute_critic_loss(batch, i)
-                    q_preds.append(critic_info["vf/q_pred"])
-                    v_preds.append(critic_info["vf/v_pred"])
-                    
-                    if not validate:
-                        # Critic update
-                        self._update_critic(critic_losses, vf_loss)
+                    if not self.algo_config.use_bc:
+                        critic_losses, vf_loss, critic_info = self._compute_critic_loss(batch, i)
+                        q_preds.append(critic_info["vf/q_pred"])
+                        v_preds.append(critic_info["vf/v_pred"])
+                        
+                        if not validate:
+                            # Critic update
+                            self._update_critic(critic_losses, vf_loss)
                 
                 # Compute loss for actor
                 actor_loss, actor_info = self._compute_actor_loss(batch, q_preds, v_preds)
@@ -247,15 +249,20 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
                     self._update_actor(actor_loss)
             elif self.multi_step_method == MultiStepMethod.ONE_STEP:
                 # Compute loss for critic(s)
-                critic_losses, vf_loss, critic_info = self._compute_critic_loss(batch)
-                q_pred = critic_info["vf/q_pred"]
-                v_pred = critic_info["vf/v_pred"]
+                if not self.algo_config.use_bc:
+                    critic_losses, vf_loss, critic_info = self._compute_critic_loss(batch)
+                    q_pred = critic_info["vf/q_pred"]
+                    v_pred = critic_info["vf/v_pred"]
+                else:
+                    q_pred = None
+                    v_pred = None
                 # Compute loss for actor
                 actor_loss, actor_info = self._compute_actor_loss(batch, q_pred, v_pred)
 
                 if not validate:
                     # Critic update
-                    self._update_critic(critic_losses, vf_loss)
+                    if not self.algo_config.use_bc:
+                        self._update_critic(critic_losses, vf_loss)
                     
                     # Actor update
                     if epoch >= actor_freeze_until_epoch:
@@ -439,29 +446,32 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
         self.ema.step(self.nets['policy'].parameters())
 
         info["actor/bc_loss"] = bc_loss.mean()
-        # compute advantage estimate
-        if self.multi_step_method == MultiStepMethod.REPEAT:
-            q_pred = torch.stack(q_pred)
-            v_pred = torch.stack(v_pred)
-            discounts = self.algo_config.discount ** torch.arange(len(q_pred), dtype=torch.float32, device=self.device).reshape(len(q_pred), 1, 1)
-            adv = torch.sum(discounts * (q_pred - v_pred), dim=0)
-        elif self.multi_step_method == MultiStepMethod.ONE_STEP:
-            adv = q_pred - v_pred
         
-        # compute weights
-        weights = self._get_adv_weights(adv)
+        if not self.algo_config.use_bc:
+            # compute advantage estimate
+            if self.multi_step_method == MultiStepMethod.REPEAT:
+                q_pred = torch.stack(q_pred)
+                v_pred = torch.stack(v_pred)
+                discounts = self.algo_config.discount ** torch.arange(len(q_pred), dtype=torch.float32, device=self.device).reshape(len(q_pred), 1, 1)
+                adv = torch.sum(discounts * (q_pred - v_pred), dim=0)
+            elif self.multi_step_method == MultiStepMethod.ONE_STEP:
+                adv = q_pred - v_pred
+            
+            # compute weights
+            weights = self._get_adv_weights(adv)
         
         if self.algo_config.use_bc:
-            weights = weights * 0 + 1.0
-
-        # compute advantage weighted actor loss. disable gradients through weights
-        actor_loss = (bc_loss * weights.detach()).mean()
+            actor_loss = (bc_loss).mean()
+        else:
+            # compute advantage weighted actor loss. disable gradients through weights
+            actor_loss = (bc_loss * weights.detach()).mean()
 
         info["actor/loss"] = actor_loss
 
-        # log adv-related values
-        info["adv/adv"] = adv
-        info["adv/adv_weight"] = weights
+        if not self.algo_config.use_bc:
+            # log adv-related values
+            info["adv/adv"] = adv
+            info["adv/adv_weight"] = weights
         
         # Return stats
         return actor_loss, info
