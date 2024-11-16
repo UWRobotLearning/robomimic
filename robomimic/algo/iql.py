@@ -117,7 +117,6 @@ class IQL(PolicyAlgo, ValueAlgo):
         """
 
         input_batch = dict()
-        import ipdb; ipdb.set_trace()
         # remove temporal batches for all
         input_batch["obs"] = {k: batch["obs"][k][:, 0, :] for k in batch["obs"]}
         input_batch["next_obs"] = {k: batch["next_obs"][k][:, 0, :] for k in batch["next_obs"]}
