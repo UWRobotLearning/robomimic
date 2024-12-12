@@ -86,7 +86,8 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
             input_dim=self.ac_dim,
             down_dims=self.algo_config.unet.down_dims,
             diffusion_step_embed_dim=self.algo_config.unet.diffusion_step_embed_dim,
-            global_cond_dim=obs_dim*self.algo_config.horizon.observation_horizon
+            global_cond_dim=obs_dim*self.algo_config.horizon.observation_horizon,
+            no_chunking=self.algo_config.horizon.prediction_horizon==1,
         )
 
         # the final arch has 2 parts
@@ -836,7 +837,8 @@ class ConditionalUnet1D(nn.Module):
         diffusion_step_embed_dim=256,
         down_dims=[256,512,1024],
         kernel_size=5,
-        n_groups=8
+        n_groups=8,
+        no_chunking=False,
         ):
         """
         input_dim: Dim of actions.
@@ -885,7 +887,7 @@ class ConditionalUnet1D(nn.Module):
                 ConditionalResidualBlock1D(
                     dim_out, dim_out, cond_dim=cond_dim, 
                     kernel_size=kernel_size, n_groups=n_groups),
-                Downsample1d(dim_out) if not is_last else nn.Identity()
+                Downsample1d(dim_out) if (not is_last or no_chunking) else nn.Identity()
             ]))
 
         up_modules = nn.ModuleList([])
@@ -898,7 +900,7 @@ class ConditionalUnet1D(nn.Module):
                 ConditionalResidualBlock1D(
                     dim_in, dim_in, cond_dim=cond_dim,
                     kernel_size=kernel_size, n_groups=n_groups),
-                Upsample1d(dim_in) if not is_last else nn.Identity()
+                Upsample1d(dim_in) if (not is_last or no_chunking) else nn.Identity()
             ]))
         
         final_conv = nn.Sequential(
