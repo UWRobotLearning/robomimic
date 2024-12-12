@@ -926,7 +926,6 @@ class ConditionalUnet1D(nn.Module):
         out
         put: (B,T,input_dim)
         """
-        # (B,T,C)
         sample = sample.moveaxis(-1,-2)
         # (B,C,T)
 
@@ -945,7 +944,7 @@ class ConditionalUnet1D(nn.Module):
             global_feature = torch.cat([
                 global_feature, global_cond
             ], axis=-1)
-                    
+
         x = sample
         h = []
         for idx, (resnet, resnet2, downsample) in enumerate(self.down_modules):

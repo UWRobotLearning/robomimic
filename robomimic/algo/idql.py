@@ -36,7 +36,7 @@ class MultiStepMethod(Enum):
     ONE_STEP = 'one_step'
     MULTI_STEP = 'multi_step'
 
-@register_algo_factory_func("iql_diffusion")
+@register_algo_factory_func("idql")
 def algo_config_to_class(algo_config):
     """
     Maps algo config to the IQL algo class to instantiate, along with additional algo kwargs.
