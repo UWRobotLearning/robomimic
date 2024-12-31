@@ -1,5 +1,5 @@
 {
-    "algo_name": "idql",
+    "algo_name": "idql_qsm",
     "experiment": {
         "name": "test",
         "validate": false,
@@ -150,6 +150,7 @@
             "prediction_type": "epsilon"
         },
         "multi_step_method": "one_step",
+        "alpha_q": 50,
         "use_bc": false,
         "vf_quantile": 0.9
     },

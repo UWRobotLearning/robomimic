@@ -6,6 +6,7 @@ Based off of https://github.com/rail-berkeley/rlkit/blob/master/rlkit/torch/sac/
 import numpy as np
 import copy
 from collections import OrderedDict
+from torch.autograd.functional import jacobian
 
 import math
 import torch
@@ -36,7 +37,7 @@ class MultiStepMethod(Enum):
     ONE_STEP = 'one_step'
     MULTI_STEP = 'multi_step'
 
-@register_algo_factory_func("iql_diffusion")
+@register_algo_factory_func("idql_qsm")
 def algo_config_to_class(algo_config):
     """
     Maps algo config to the IQL algo class to instantiate, along with additional algo kwargs.
@@ -48,10 +49,10 @@ def algo_config_to_class(algo_config):
         algo_class: subclass of Algo
         algo_kwargs (dict): dictionary of additional kwargs to pass to algorithm
     """
-    return IQLDiffusion, {}
+    return IDQL_QSM, {}
 
 
-class IQLDiffusion(PolicyAlgo, ValueAlgo):
+class IDQL_QSM(PolicyAlgo, ValueAlgo):
     def _create_networks(self):
         """
         Creates networks and places them into @self.nets.
@@ -433,8 +434,24 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
         noisy_actions = self.noise_scheduler.add_noise(
             actions, noise, timesteps)
         
-        # # compute loss mask
-        # loss_mask = ~condition_mask
+        obs = {k: batch["obs"][k][:, To - 1, :] for k in batch["obs"]}
+        goal_obs = batch["goal_obs"]
+        noisy_actions.requires_grad = True
+
+        jacobians = []
+        single_noisy_action = noisy_actions[:, 0, :]
+        def filter_dict_by_inx(d, inx):
+            return {k: v[inx].unsqueeze(0) for k, v in d.items()}
+        for i in range(single_noisy_action.shape[0]):
+            jac = jacobian(
+                    lambda x: self.nets["critic"][0](
+                        obs_dict=filter_dict_by_inx(obs, i),
+                        acts=x.unsqueeze(0), 
+                        goal_dict=filter_dict_by_inx(goal_obs, i) if goal_obs is not None else None
+                    ), single_noisy_action[i])
+            jacobians.append(jac)
+        # shape (B, A)
+        jacobians = torch.cat(jacobians, dim=0).squeeze().detach()
         
         # # apply conditioning
         # noisy_actions[condition_mask] = actions[condition_mask]
@@ -443,37 +460,15 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
             noisy_actions, timesteps, global_cond=obs_cond)
         
         # L2 loss
-        bc_loss = F.mse_loss(noise_pred, noise)
+        score_matching_loss = F.mse_loss(noise_pred, -self.algo_config.alpha_q * jacobians)
         
         self.ema.step(self.nets['policy'].parameters())
 
-        info["actor/bc_loss"] = bc_loss.mean()
+        info["actor/bc_loss"] = score_matching_loss.mean()
         
-        if not self.algo_config.use_bc:
-            # compute advantage estimate
-            if self.multi_step_method == MultiStepMethod.REPEAT:
-                q_pred = torch.stack(q_pred)
-                v_pred = torch.stack(v_pred)
-                discounts = self.algo_config.discount ** torch.arange(len(q_pred), dtype=torch.float32, device=self.device).reshape(len(q_pred), 1, 1)
-                adv = torch.sum(discounts * (q_pred - v_pred), dim=0)
-            elif self.multi_step_method == MultiStepMethod.ONE_STEP:
-                adv = q_pred - v_pred
-            
-            # compute weights
-            weights = self._get_adv_weights(adv)
-        
-        if self.algo_config.use_bc:
-            actor_loss = (bc_loss).mean()
-        else:
-            # compute advantage weighted actor loss. disable gradients through weights
-            actor_loss = (bc_loss * weights.detach()).mean()
+        actor_loss = (score_matching_loss).mean()
 
         info["actor/loss"] = actor_loss
-
-        if not self.algo_config.use_bc:
-            # log adv-related values
-            info["adv/adv"] = adv
-            info["adv/adv_weight"] = weights
         
         # Return stats
         return actor_loss, info

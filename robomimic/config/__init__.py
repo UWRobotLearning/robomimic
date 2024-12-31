@@ -10,5 +10,7 @@ from robomimic.config.gl_config import GLConfig
 from robomimic.config.hbc_config import HBCConfig
 from robomimic.config.iris_config import IRISConfig
 from robomimic.config.td3_bc_config import TD3_BCConfig
+from robomimic.config.idql_config import IDQLConfig
+from robomimic.config.idql_qsm_config import IDQL_QSMConfig
 from robomimic.config.iql_diffusion_config import IQLDiffusionConfig
 from robomimic.config.discriminator_config import DiscriminatorConfig

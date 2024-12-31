@@ -5,8 +5,8 @@ Config for IQL Diffusion algorithm.
 from robomimic.config.base_config import BaseConfig
 
 
-class IDQLConfig(BaseConfig):
-    ALGO_NAME = "idql"
+class IDQL_QSMConfig(BaseConfig):
+    ALGO_NAME = "idql_qsm"
 
     def algo_config(self):
         """
@@ -15,7 +15,7 @@ class IDQLConfig(BaseConfig):
         argument to the constructor. Any parameter that an algorithm needs to determine its 
         training and test-time behavior should be populated here.
         """
-        super(IDQLConfig, self).algo_config()
+        super(IDQL_QSMConfig, self).algo_config()
 
         # optimization parameters        
         self.algo.optim_params.critic.learning_rate.initial = 1e-4          # critic learning rate
@@ -36,6 +36,8 @@ class IDQLConfig(BaseConfig):
 
         self.algo.multi_step_method = 'one_step'
         self.algo.use_bc = False
+
+        self.algo.alpha_q = 50
 
         # unet params
         self.algo.unet.enabled = True
