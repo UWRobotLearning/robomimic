@@ -29,6 +29,7 @@ class ValueNetwork(MIMO_MLP):
         value_bounds=None,
         goal_shapes=None,
         encoder_kwargs=None,
+        stochastic_encoder=False,
     ):
         """
         Args:
@@ -89,6 +90,7 @@ class ValueNetwork(MIMO_MLP):
             output_shapes=output_shapes,
             layer_dims=mlp_layer_dims,
             encoder_kwargs=encoder_kwargs,
+            stochastic_encoder=stochastic_encoder,
         )
 
     def _get_output_shapes(self):
@@ -139,6 +141,7 @@ class ActionValueNetwork(ValueNetwork):
         value_bounds=None,
         goal_shapes=None,
         encoder_kwargs=None,
+        stochastic_encoder=False,
     ):
         """
         Args:
@@ -186,6 +189,7 @@ class ActionValueNetwork(ValueNetwork):
             value_bounds=value_bounds,
             goal_shapes=goal_shapes,
             encoder_kwargs=encoder_kwargs,
+            stochastic_encoder=stochastic_encoder,
         )
 
     def forward(self, obs_dict, acts, goal_dict=None):
@@ -215,6 +219,7 @@ class DistributionalActionValueNetwork(ActionValueNetwork):
         num_atoms,
         goal_shapes=None,
         encoder_kwargs=None,
+        stochastic_encoder=False,
     ):
         """
         Args:
@@ -265,6 +270,7 @@ class DistributionalActionValueNetwork(ActionValueNetwork):
             value_bounds=value_bounds,
             goal_shapes=goal_shapes,
             encoder_kwargs=encoder_kwargs,
+            stochastic_encoder=stochastic_encoder,
         )
 
     def _get_output_shapes(self):

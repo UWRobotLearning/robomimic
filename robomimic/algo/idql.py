@@ -73,6 +73,7 @@ class IDQL(PolicyAlgo, ValueAlgo):
         obs_encoder = ObsNets.ObservationGroupEncoder(
             observation_group_shapes=observation_group_shapes,
             encoder_kwargs=encoder_kwargs,
+            stochastic=self.algo_config.bottleneck_policy,
         )
         # IMPORTANT!
         # replace all BatchNorm with GroupNorm to work with EMA
@@ -138,6 +139,7 @@ class IDQL(PolicyAlgo, ValueAlgo):
                     mlp_layer_dims=self.algo_config.critic.layer_dims,
                     goal_shapes=self.goal_shapes,
                     encoder_kwargs=ObsUtils.obs_encoder_kwargs_from_config(self.obs_config.encoder),
+                    stochastic_encoder=self.algo_config.bottleneck_value,
                 )
                 net_list.append(critic)
 
@@ -147,6 +149,7 @@ class IDQL(PolicyAlgo, ValueAlgo):
             mlp_layer_dims=self.algo_config.critic.layer_dims,
             goal_shapes=self.goal_shapes,
             encoder_kwargs=ObsUtils.obs_encoder_kwargs_from_config(self.obs_config.encoder),
+            stochastic_encoder=False,
         )
         
         # Send networks to appropriate device
@@ -322,6 +325,19 @@ class IDQL(PolicyAlgo, ValueAlgo):
             # Calculate td error loss
             td_loss = td_loss_fcn(q_pred, q_target)
             info[f"critic/critic{i+1}_loss"] = td_loss
+
+            if self.algo_config.bottleneck_value:
+                # compute KL divergence between encoder distribution and standard normal
+                mean = self.nets["critic"][i].nets["encoder"].nets['obs'].computed_mean
+                logvar = self.nets["critic"][i].nets["encoder"].nets['obs'].computed_logvar
+                
+                # KL divergence between N(mean, std) and N(0, 1)
+                kl_div = -0.5 * torch.sum(1 + logvar - mean.pow(2) - logvar.exp(), dim=1).mean()
+                
+                # add KL term to critic loss with weight
+                td_loss = td_loss + self.algo_config.q_bottleneck_beta * kl_div
+                info[f"critic/critic{i+1}_kl_div"] = kl_div
+
             critic_losses.append(td_loss)
 
         # V predictions
@@ -406,6 +422,7 @@ class IDQL(PolicyAlgo, ValueAlgo):
             'obs': {k: batch["obs"][k][:, :To, :] for k in batch["obs"]},
             'goal': batch["goal_obs"]
         }
+
         for k in self.obs_shapes:
             # first two dimensions should be [B, T] for inputs
             assert inputs['obs'][k].ndim - 2 == len(self.obs_shapes[k])
@@ -463,6 +480,17 @@ class IDQL(PolicyAlgo, ValueAlgo):
         
         actor_loss = (bc_loss).mean()
 
+        if self.algo_config.bottleneck_policy:
+            # compute KL divergence between encoder distribution and standard normal
+            mean = self.nets['policy']['obs_encoder'].nets['obs'].computed_mean
+            logvar = self.nets['policy']['obs_encoder'].nets['obs'].computed_logvar
+            
+            # KL divergence between N(mean, std) and N(0, 1)
+            kl_div = -0.5 * torch.sum(1 + logvar - mean.pow(2) - logvar.exp(), dim=1).mean()
+            
+            # add KL term to actor loss with weight
+            actor_loss = actor_loss + self.algo_config.policy_bottleneck_beta * kl_div
+            info["actor/kl_div"] = kl_div
 
         info["actor/loss"] = actor_loss
 
@@ -540,6 +568,11 @@ class IDQL(PolicyAlgo, ValueAlgo):
             self._log_data_attributes(log, info, "vf/v_pred")
             self._log_data_attributes(log, info, "adv/adv")
             self._log_data_attributes(log, info, "adv/adv_weight")
+
+            if self.algo_config.bottleneck_value:
+                self._log_data_attributes(log, info, "critic/critic1_kl_div")
+            if self.algo_config.bottleneck_policy:
+                self._log_data_attributes(log, info, "actor/kl_div")
 
         return log
 

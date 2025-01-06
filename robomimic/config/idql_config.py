@@ -88,3 +88,8 @@ class IDQLConfig(BaseConfig):
         self.algo.adv.use_final_clip = True                                 # whether to clip final weight calculations
 
         self.algo.vf_quantile = 0.9                                         # quantile factor in quantile regression
+
+        self.algo.bottleneck_policy = False
+        self.algo.bottleneck_value = False
+        self.algo.q_bottleneck_beta = 0.2
+        self.algo.policy_bottleneck_beta = 0.2

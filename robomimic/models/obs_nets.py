@@ -31,6 +31,7 @@ def obs_encoder_factory(
         obs_shapes,
         feature_activation=nn.ReLU,
         encoder_kwargs=None,
+        stochastic=False,
     ):
     """
     Utility function to create an @ObservationEncoder from kwargs specified in config.
@@ -59,7 +60,7 @@ def obs_encoder_factory(
             obs_modality2: dict
                 ...
     """
-    enc = ObservationEncoder(feature_activation=feature_activation)
+    enc = ObservationEncoder(feature_activation=feature_activation, stochastic=stochastic)
     for k, obs_shape in obs_shapes.items():
         obs_modality = ObsUtils.OBS_KEYS_TO_MODALITIES[k]
         enc_kwargs = deepcopy(ObsUtils.DEFAULT_ENCODER_KWARGS[obs_modality]) if encoder_kwargs is None else \
@@ -91,7 +92,6 @@ def obs_encoder_factory(
             net_kwargs=enc_kwargs["core_kwargs"],
             randomizer=randomizer,
         )
-
     enc.make()
     return enc
 
@@ -103,7 +103,7 @@ class ObservationEncoder(Module):
     Call @register_obs_key to register observation keys with the encoder and then
     finally call @make to create the encoder networks. 
     """
-    def __init__(self, feature_activation=nn.ReLU):
+    def __init__(self, feature_activation=nn.ReLU, stochastic=False):
         """
         Args:
             feature_activation: non-linearity to apply after each obs net - defaults to ReLU. Pass
@@ -118,6 +118,7 @@ class ObservationEncoder(Module):
         self.obs_randomizers = nn.ModuleDict()
         self.feature_activation = feature_activation
         self._locked = False
+        self.stochastic = stochastic
 
     def register_obs_key(
         self, 
@@ -180,6 +181,8 @@ class ObservationEncoder(Module):
         """
         assert not self._locked, "ObservationEncoder: @make called more than once"
         self._create_layers()
+        if self.stochastic:
+            self.make_stochastic()
         self._locked = True
 
     def _create_layers(self):
@@ -224,6 +227,7 @@ class ObservationEncoder(Module):
 
         # process modalities by order given by @self.obs_shapes
         feats = []
+        action_feat = None
         for k in self.obs_shapes:
             x = obs_dict[k]
             # maybe process encoder input with randomizer
@@ -239,10 +243,75 @@ class ObservationEncoder(Module):
                 x = self.obs_randomizers[k].forward_out(x)
             # flatten to [B, D]
             x = TensorUtils.flatten(x, begin_axis=1)
-            feats.append(x)
+            
+            # store action feature separately
+            if k == 'action':
+                action_feat = x
+            else:
+                feats.append(x)
 
-        # concatenate all features together
-        return torch.cat(feats, dim=-1)
+        # if we want to add stochastic noise to the features
+        if self.stochastic:
+            # concatenate all non-action features before passing through stochastic encoder
+            x = torch.cat(feats, dim=-1)
+            
+            # get mean and logvar from MLP
+            mean, logvar = self.stochastic_encoder(x).chunk(2, dim=-1)
+            std = torch.exp(0.5 * logvar) 
+            
+            # sample from distribution during training, use mean during eval
+            if self.training:
+                eps = torch.randn_like(std)
+                x = mean + eps * std
+            else:
+                x = mean
+            
+            # add action feature back at the end if it exists
+            if action_feat is not None:
+                x = torch.cat([x, action_feat], dim=-1)
+                
+            self.computed_mean = mean
+            self.computed_logvar = logvar
+            return x
+        else:
+            # concatenate all features together, including action if it exists
+            if action_feat is not None:
+                feats.append(action_feat)
+            return torch.cat(feats, dim=-1)
+
+    def make_stochastic(self, hidden_dims=[256, 256]):
+        """
+        Add a stochastic encoder MLP that outputs a Gaussian distribution.
+        
+        Args:
+            hidden_dims ([int]): sequence of integers for the MLP hidden layer sizes
+        """
+        # Calculate input dim excluding action features
+        input_dim = 0
+        for k in self.obs_shapes:
+            if k != 'action':
+                feat_shape = self.obs_shapes[k]
+                if self.obs_randomizers[k] is not None:
+                    feat_shape = self.obs_randomizers[k].output_shape_in(feat_shape)
+                if self.obs_nets[k] is not None:
+                    feat_shape = self.obs_nets[k].output_shape(feat_shape)
+                if self.obs_randomizers[k] is not None:
+                    feat_shape = self.obs_randomizers[k].output_shape_out(feat_shape)
+                input_dim += int(np.prod(feat_shape))
+                
+        output_dim = input_dim * 2  # mean and log_std for each dimension
+        
+        layers = []
+        dim = input_dim
+        for h in hidden_dims:
+            layers.extend([
+                nn.Linear(dim, h),
+                nn.ReLU(),
+            ])
+            dim = h
+        layers.append(nn.Linear(dim, output_dim))
+        
+        self.stochastic_encoder = nn.Sequential(*layers)
 
     def output_shape(self, input_shape=None):
         """
@@ -369,6 +438,7 @@ class ObservationGroupEncoder(Module):
         observation_group_shapes,
         feature_activation=nn.ReLU,
         encoder_kwargs=None,
+        stochastic=False,
     ):
         """
         Args:
@@ -411,6 +481,7 @@ class ObservationGroupEncoder(Module):
                 obs_shapes=self.observation_group_shapes[obs_group],
                 feature_activation=feature_activation,
                 encoder_kwargs=encoder_kwargs,
+                stochastic=stochastic,
             )
 
     def forward(self, **inputs):
@@ -489,6 +560,7 @@ class MIMO_MLP(Module):
         activation=nn.ReLU,
         output_activation=None,
         encoder_kwargs=None,
+        stochastic_encoder=False,
     ):
         """
         Args:
@@ -538,6 +610,7 @@ class MIMO_MLP(Module):
         self.nets["encoder"] = ObservationGroupEncoder(
             observation_group_shapes=input_obs_group_shapes,
             encoder_kwargs=encoder_kwargs,
+            stochastic=stochastic_encoder,
         )
 
         # flat encoder output dimension
