@@ -32,6 +32,7 @@ def obs_encoder_factory(
         feature_activation=nn.ReLU,
         encoder_kwargs=None,
         stochastic=False,
+        spectral_norm=False,
     ):
     """
     Utility function to create an @ObservationEncoder from kwargs specified in config.
@@ -60,7 +61,7 @@ def obs_encoder_factory(
             obs_modality2: dict
                 ...
     """
-    enc = ObservationEncoder(feature_activation=feature_activation, stochastic=stochastic)
+    enc = ObservationEncoder(feature_activation=feature_activation, stochastic=stochastic, spectral_norm=spectral_norm)
     for k, obs_shape in obs_shapes.items():
         obs_modality = ObsUtils.OBS_KEYS_TO_MODALITIES[k]
         enc_kwargs = deepcopy(ObsUtils.DEFAULT_ENCODER_KWARGS[obs_modality]) if encoder_kwargs is None else \
@@ -103,7 +104,7 @@ class ObservationEncoder(Module):
     Call @register_obs_key to register observation keys with the encoder and then
     finally call @make to create the encoder networks. 
     """
-    def __init__(self, feature_activation=nn.ReLU, stochastic=False):
+    def __init__(self, feature_activation=nn.ReLU, stochastic=False, spectral_norm=False):
         """
         Args:
             feature_activation: non-linearity to apply after each obs net - defaults to ReLU. Pass
@@ -119,7 +120,8 @@ class ObservationEncoder(Module):
         self.feature_activation = feature_activation
         self._locked = False
         self.stochastic = stochastic
-
+        self.spectral_norm = spectral_norm
+        
     def register_obs_key(
         self, 
         name,
@@ -202,7 +204,6 @@ class ObservationEncoder(Module):
         self.activation = None
         if self.feature_activation is not None:
             self.activation = self.feature_activation()
-
     def forward(self, obs_dict):
         """
         Processes modalities according to the ordering in @self.obs_shapes. For each
@@ -258,7 +259,7 @@ class ObservationEncoder(Module):
             # get mean and logvar from MLP
             mean, logvar = self.stochastic_encoder(x).chunk(2, dim=-1)
             std = torch.exp(0.5 * logvar) 
-            
+
             # sample from distribution during training, use mean during eval
             if self.training:
                 eps = torch.randn_like(std)
@@ -272,6 +273,23 @@ class ObservationEncoder(Module):
                 
             self.computed_mean = mean
             self.computed_logvar = logvar
+            return x
+        elif self.spectral_norm:
+            # concatenate all non-action features
+            x = torch.cat(feats, dim=-1)
+            
+            # pass through spectral norm MLP
+            x = self.spectral_net(x)
+            
+            # compute spectral norm
+            # Use PyTorch's built-in spectral_norm function
+            weight = self.spectral_net[-1].weight
+            self.spectral_norm = torch.linalg.matrix_norm(weight, ord=2).item()
+            
+            # add action feature back at the end if it exists
+            if action_feat is not None:
+                x = torch.cat([x, action_feat], dim=-1)
+                
             return x
         else:
             # concatenate all features together, including action if it exists
@@ -312,6 +330,38 @@ class ObservationEncoder(Module):
         layers.append(nn.Linear(dim, output_dim))
         
         self.stochastic_encoder = nn.Sequential(*layers)
+        
+    def make_spectral_net(self, hidden_dims=[512, 512]):
+        """
+        Add an MLP with spectral normalization.
+        
+        Args:
+            hidden_dims ([int]): sequence of integers for the MLP hidden layer sizes
+        """
+        # Calculate input dim excluding action features
+        input_dim = 0
+        for k in self.obs_shapes:
+            if k != 'action':
+                feat_shape = self.obs_shapes[k]
+                if self.obs_randomizers[k] is not None:
+                    feat_shape = self.obs_randomizers[k].output_shape_in(feat_shape)
+                if self.obs_nets[k] is not None:
+                    feat_shape = self.obs_nets[k].output_shape(feat_shape)
+                if self.obs_randomizers[k] is not None:
+                    feat_shape = self.obs_randomizers[k].output_shape_out(feat_shape)
+                input_dim += int(np.prod(feat_shape))
+                
+        layers = []
+        dim = input_dim
+        for h in hidden_dims:
+            layers.extend([
+                nn.Linear(dim, h),
+                nn.ReLU(),
+            ])
+            dim = h
+        layers.append(nn.Linear(dim, input_dim))  # output same dimension as input
+        
+        self.spectral_net = nn.Sequential(*layers)
 
     def output_shape(self, input_shape=None):
         """
@@ -439,6 +489,7 @@ class ObservationGroupEncoder(Module):
         feature_activation=nn.ReLU,
         encoder_kwargs=None,
         stochastic=False,
+        spectral_norm=False,
     ):
         """
         Args:
@@ -482,6 +533,7 @@ class ObservationGroupEncoder(Module):
                 feature_activation=feature_activation,
                 encoder_kwargs=encoder_kwargs,
                 stochastic=stochastic,
+                spectral_norm=spectral_norm,
             )
 
     def forward(self, **inputs):
@@ -561,6 +613,7 @@ class MIMO_MLP(Module):
         output_activation=None,
         encoder_kwargs=None,
         stochastic_encoder=False,
+        spectral_norm=False,
     ):
         """
         Args:
@@ -611,6 +664,7 @@ class MIMO_MLP(Module):
             observation_group_shapes=input_obs_group_shapes,
             encoder_kwargs=encoder_kwargs,
             stochastic=stochastic_encoder,
+            spectral_norm=spectral_norm,
         )
 
         # flat encoder output dimension

@@ -155,7 +155,9 @@
         "bottleneck_policy": false,
         "bottleneck_value": false,
         "q_bottleneck_beta": 0.2,
-        "policy_bottleneck_beta": 0.2
+        "policy_bottleneck_beta": 0.2,
+        "spectral_norm_policy": false,
+        "spectral_norm_value": false
     },
     "observation": {
         "modalities": {

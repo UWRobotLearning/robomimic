@@ -93,3 +93,5 @@ class IDQLConfig(BaseConfig):
         self.algo.bottleneck_value = False
         self.algo.q_bottleneck_beta = 0.2
         self.algo.policy_bottleneck_beta = 0.2
+        self.algo.spectral_norm_policy = False
+        self.algo.spectral_norm_value = False

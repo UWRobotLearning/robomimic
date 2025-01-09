@@ -74,6 +74,7 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
             observation_group_shapes=observation_group_shapes,
             encoder_kwargs=encoder_kwargs,
             stochastic=self.algo_config.bottleneck_policy,
+            spectral_norm=self.algo_config.spectral_norm,
         )
         # IMPORTANT!
         # replace all BatchNorm with GroupNorm to work with EMA
@@ -141,6 +142,7 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
                     goal_shapes=self.goal_shapes,
                     encoder_kwargs=ObsUtils.obs_encoder_kwargs_from_config(self.obs_config.encoder),
                     stochastic_encoder=self.algo_config.bottleneck_value,
+                    spectral_norm=self.algo_config.spectral_norm_value,
                 )
                 net_list.append(critic)
 
@@ -151,6 +153,7 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
             goal_shapes=self.goal_shapes,
             encoder_kwargs=ObsUtils.obs_encoder_kwargs_from_config(self.obs_config.encoder),
             stochastic_encoder=False,
+            spectral_norm=False,
         )
         
         # Send networks to appropriate device
@@ -339,6 +342,10 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
                 # add KL term to critic loss with weight
                 td_loss = td_loss + self.algo_config.q_bottleneck_beta * kl_div
                 info[f"critic/critic{i+1}_kl_div"] = kl_div
+            elif self.algo_config.spectral_norm_value:
+                spectral_norm = self.nets["critic"][i].nets["encoder"].nets['obs'].spectral_norm
+                td_loss = td_loss + self.algo_config.q_bottleneck_beta * spectral_norm
+                info[f"critic/critic{i+1}_spectral_norm"] = spectral_norm
 
             critic_losses.append(td_loss)                
 
@@ -498,7 +505,11 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
             # add KL term to actor loss with weight
             actor_loss = actor_loss + self.algo_config.policy_bottleneck_beta * kl_div
             info["actor/kl_div"] = kl_div
-
+        elif self.algo_config.spectral_norm:
+            spectral_norm = self.nets['policy']['obs_encoder'].nets['obs'].spectral_norm
+            actor_loss = actor_loss + self.algo_config.policy_bottleneck_beta * spectral_norm
+            info["actor/spectral_norm"] = spectral_norm
+            
         info["actor/loss"] = actor_loss
 
         if not self.algo_config.use_bc:
@@ -580,6 +591,10 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
                 self._log_data_attributes(log, info, "actor/kl_div")
             if self.algo_config.bottleneck_value:
                 self._log_data_attributes(log, info, "critic/critic1_kl_div")  
+            if self.algo_config.spectral_norm_value:
+                self._log_data_attributes(log, info, "critic/critic1_spectral_norm")
+            if self.algo_config.spectral_norm_policy:
+                self._log_data_attributes(log, info, "actor/spectral_norm")
         return log
 
     def _log_data_attributes(self, log, info, key):

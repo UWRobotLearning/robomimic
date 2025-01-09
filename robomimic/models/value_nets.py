@@ -30,6 +30,7 @@ class ValueNetwork(MIMO_MLP):
         goal_shapes=None,
         encoder_kwargs=None,
         stochastic_encoder=False,
+        spectral_norm=False,
     ):
         """
         Args:
@@ -91,6 +92,7 @@ class ValueNetwork(MIMO_MLP):
             layer_dims=mlp_layer_dims,
             encoder_kwargs=encoder_kwargs,
             stochastic_encoder=stochastic_encoder,
+            spectral_norm=spectral_norm,
         )
 
     def _get_output_shapes(self):
@@ -142,6 +144,7 @@ class ActionValueNetwork(ValueNetwork):
         goal_shapes=None,
         encoder_kwargs=None,
         stochastic_encoder=False,
+        spectral_norm=False,
     ):
         """
         Args:
@@ -190,6 +193,7 @@ class ActionValueNetwork(ValueNetwork):
             goal_shapes=goal_shapes,
             encoder_kwargs=encoder_kwargs,
             stochastic_encoder=stochastic_encoder,
+            spectral_norm=spectral_norm,
         )
 
     def forward(self, obs_dict, acts, goal_dict=None):
