@@ -74,7 +74,7 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
             observation_group_shapes=observation_group_shapes,
             encoder_kwargs=encoder_kwargs,
             stochastic=self.algo_config.bottleneck_policy,
-            spectral_norm=self.algo_config.spectral_norm,
+            spectral_norm=self.algo_config.spectral_norm_policy,
         )
         # IMPORTANT!
         # replace all BatchNorm with GroupNorm to work with EMA
@@ -505,7 +505,7 @@ class IQLDiffusion(PolicyAlgo, ValueAlgo):
             # add KL term to actor loss with weight
             actor_loss = actor_loss + self.algo_config.policy_bottleneck_beta * kl_div
             info["actor/kl_div"] = kl_div
-        elif self.algo_config.spectral_norm:
+        elif self.algo_config.spectral_norm_policy:
             spectral_norm = self.nets['policy']['obs_encoder'].nets['obs'].spectral_norm
             actor_loss = actor_loss + self.algo_config.policy_bottleneck_beta * spectral_norm
             info["actor/spectral_norm"] = spectral_norm
