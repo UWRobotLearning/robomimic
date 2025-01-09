@@ -583,6 +583,10 @@ class IDQL(PolicyAlgo, ValueAlgo):
                 self._log_data_attributes(log, info, "critic/critic1_kl_div")
             if self.algo_config.bottleneck_policy:
                 self._log_data_attributes(log, info, "actor/kl_div")
+            if self.algo_config.spectral_norm_value:
+                self._log_data_attributes(log, info, "critic/critic1_spectral_norm")
+            if self.algo_config.spectral_norm_policy:
+                self._log_data_attributes(log, info, "actor/spectral_norm")
 
         return log
 
