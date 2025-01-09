@@ -537,8 +537,6 @@ class IDQL_QSM(PolicyAlgo, ValueAlgo):
 
             self._log_data_attributes(log, info, "vf/q_pred")
             self._log_data_attributes(log, info, "vf/v_pred")
-            self._log_data_attributes(log, info, "adv/adv")
-            self._log_data_attributes(log, info, "adv/adv_weight")
 
         return log
 

@@ -486,7 +486,6 @@ class IDQL(PolicyAlgo, ValueAlgo):
             weights = self._get_adv_weights(adv)
         
         actor_loss = (bc_loss).mean()
-
         if self.algo_config.bottleneck_policy:
             # compute KL divergence between encoder distribution and standard normal
             mean = self.nets['policy']['obs_encoder'].nets['obs'].computed_mean

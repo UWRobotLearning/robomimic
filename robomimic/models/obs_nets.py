@@ -120,7 +120,7 @@ class ObservationEncoder(Module):
         self.feature_activation = feature_activation
         self._locked = False
         self.stochastic = stochastic
-        self.spectral_norm = spectral_norm
+        self.use_spectral_norm = spectral_norm
         
     def register_obs_key(
         self, 
@@ -185,6 +185,8 @@ class ObservationEncoder(Module):
         self._create_layers()
         if self.stochastic:
             self.make_stochastic()
+        if self.use_spectral_norm:
+            self.make_spectral_net()
         self._locked = True
 
     def _create_layers(self):
@@ -274,17 +276,17 @@ class ObservationEncoder(Module):
             self.computed_mean = mean
             self.computed_logvar = logvar
             return x
-        elif self.spectral_norm:
+        elif self.use_spectral_norm:
             # concatenate all non-action features
             x = torch.cat(feats, dim=-1)
             
             # pass through spectral norm MLP
             x = self.spectral_net(x)
-            
+
             # compute spectral norm
             # Use PyTorch's built-in spectral_norm function
             weight = self.spectral_net[-1].weight
-            self.spectral_norm = torch.linalg.matrix_norm(weight, ord=2).item()
+            self.spectral_norm = torch.linalg.matrix_norm(weight, ord=2)
             
             # add action feature back at the end if it exists
             if action_feat is not None:
