@@ -202,7 +202,7 @@ class ActionValueNetwork(ValueNetwork):
         """
         inputs = dict(obs_dict)
         inputs["action"] = acts
-        return super(ActionValueNetwork, self).forward(inputs, goal_dict)
+        return super().forward(inputs, goal_dict)
 
     def _to_string(self):
         return "action_dim={}\nvalue_bounds={}".format(self.ac_dim, self.value_bounds)

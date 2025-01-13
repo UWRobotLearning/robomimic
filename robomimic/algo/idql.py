@@ -154,7 +154,21 @@ class IDQL(PolicyAlgo, ValueAlgo):
             stochastic_encoder=False,
             spectral_norm=False,
         )
-        
+
+        try:
+            if self.algo_config.lipschitz:
+                self.nets['policy']['slack_var_net'] = ValueNets.ActionValueNetwork = ValueNets.ActionValueNetwork(
+                        obs_shapes=self.obs_shapes,
+                        ac_dim=self.ac_dim,
+                        mlp_layer_dims=self.algo_config.critic.layer_dims,
+                        goal_shapes=self.goal_shapes,
+                        encoder_kwargs=ObsUtils.obs_encoder_kwargs_from_config(self.obs_config.encoder),
+                        stochastic_encoder=False,
+                        spectral_norm=False,
+                )
+        except:
+            pass
+            
         # Send networks to appropriate device
         self.nets = self.nets.float().to(self.device)
 
@@ -500,7 +514,43 @@ class IDQL(PolicyAlgo, ValueAlgo):
         elif self.algo_config.spectral_norm_policy:
             spectral_norm = self.nets['policy']['obs_encoder'].nets['obs'].spectral_norm
             actor_loss = actor_loss + self.algo_config.policy_bottleneck_beta * spectral_norm
+            if self.algo_config.lipschitz:
+                slack = self.nets['policy']['slack_var_net'](obs_dict=obs_cond, acts=noisy_actions)
+                weights = torch.nn.Sigmoid()(slack)
+                avg_slack_size = slack.mean()
+                actor_loss = weights * actor_loss - self.algo_config.lipschitz_weight * avg_slack_size
+                info["actor/slack_size"] = avg_slack_size
             info["actor/spectral_norm"] = spectral_norm
+        elif self.algo_config.lipschitz:
+            n_samples = 5
+            
+            obs_cond_extended = torch.repeat_interleave(obs_cond, n_samples, dim=0)
+            noisy_actions_extended = torch.repeat_interleave(noisy_actions, n_samples, dim=0)
+            obs_cond_noise = torch.randn_like(obs_cond_extended, device=self.device)
+            timesteps_extended = torch.randint(
+                0, self.noise_scheduler.config.num_train_timesteps, 
+                (B*n_samples,), device=self.device
+            ).long()
+            # enforce lipschitz on the first action only if action chunking
+            noise_pred_extended = torch.repeat_interleave(noise_pred, n_samples, dim=0)[:, 0]
+            noise_pred_noise = self.nets['policy']['noise_pred_net'](
+                noisy_actions_extended, timesteps_extended, global_cond=obs_cond_noise)[:, 0]
+            output_diff = torch.linalg.norm(noise_pred_noise - noise_pred_extended, dim=-1)
+            noise_magnitude = torch.linalg.norm(obs_cond_noise, dim=-1)
+            lipschitz_penalty = torch.relu(output_diff - self.algo_config.lipschitz_constant * noise_magnitude)
+            # reshape lipschitz penalty from (B*n_samples, D1, D2, ...) to (B, n_samples, D1, D2, ...)
+            lipschitz_penalty = lipschitz_penalty.reshape(B, n_samples, *lipschitz_penalty.shape[1:])
+            # take mean over n_samples dimension
+            lipschitz_penalty = lipschitz_penalty.mean(dim=1)
+            obs_dict = {k: batch["obs"][k][:, To - 1, :] for k in batch["obs"]}
+            actions = batch['actions'][:, 0, :]
+            slack = self.nets['policy']['slack_var_net'](obs_dict=obs_dict, acts=actions)[:, 0]
+            lipschitz_penalty = slack * lipschitz_penalty + 1 - torch.exp(-0.1 * torch.abs(slack).mean())
+            lipschitz_penalty = self.algo_config.lipschitz_weight * lipschitz_penalty.mean()
+            
+            actor_loss = actor_loss + lipschitz_penalty
+            
+            info["actor/lipschitz_penalty"] = lipschitz_penalty
 
         info["actor/loss"] = actor_loss
 
@@ -587,6 +637,8 @@ class IDQL(PolicyAlgo, ValueAlgo):
                 self._log_data_attributes(log, info, "critic/critic1_spectral_norm")
             if self.algo_config.spectral_norm_policy:
                 self._log_data_attributes(log, info, "actor/spectral_norm")
+            if self.algo_config.lipschitz:
+                self._log_data_attributes(log, info, "actor/lipschitz_penalty")
 
         return log
 

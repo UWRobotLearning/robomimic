@@ -157,7 +157,10 @@
         "q_bottleneck_beta": 0.2,
         "policy_bottleneck_beta": 0.2,
         "spectral_norm_policy": false,
-        "spectral_norm_value": false
+        "spectral_norm_value": false,
+        "lipschitz": false,
+        "lipschitz_constant": 3.0,
+        "lipschitz_weight": 0.005
     },
     "observation": {
         "modalities": {

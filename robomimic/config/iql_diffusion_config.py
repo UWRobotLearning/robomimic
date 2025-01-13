@@ -96,3 +96,7 @@ class IQLDiffusionConfig(BaseConfig):
 
         self.algo.spectral_norm_policy = False
         self.algo.spectral_norm_value = False
+
+        self.algo.lipschitz = False
+        self.algo.lipschitz_constant = 3.0
+        self.algo.lipschitz_weight = 0.005
