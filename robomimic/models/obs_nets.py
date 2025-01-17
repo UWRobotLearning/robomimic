@@ -279,7 +279,7 @@ class ObservationEncoder(Module):
         elif self.use_spectral_norm:
             # concatenate all non-action features
             x = torch.cat(feats, dim=-1)
-            
+
             # pass through spectral norm MLP
             x = self.spectral_net(x)
 

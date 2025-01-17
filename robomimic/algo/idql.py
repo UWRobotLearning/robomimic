@@ -70,11 +70,15 @@ class IDQL(PolicyAlgo, ValueAlgo):
         observation_group_shapes["obs"] = OrderedDict(self.obs_shapes)
         encoder_kwargs = ObsUtils.obs_encoder_kwargs_from_config(self.obs_config.encoder)
         
+        try:
+            lipschitz = self.algo_config.lipschitz  
+        except:
+            lipschitz = False
         obs_encoder = ObsNets.ObservationGroupEncoder(
             observation_group_shapes=observation_group_shapes,
             encoder_kwargs=encoder_kwargs,
             stochastic=self.algo_config.bottleneck_policy,
-            spectral_norm=self.algo_config.spectral_norm_policy,
+            spectral_norm=self.algo_config.spectral_norm_policy or lipschitz,
         )
         # IMPORTANT!
         # replace all BatchNorm with GroupNorm to work with EMA
@@ -156,7 +160,7 @@ class IDQL(PolicyAlgo, ValueAlgo):
         )
 
         try:
-            if self.algo_config.lipschitz:
+            if self.algo_config.lipschitz_slack:
                 self.nets['policy']['slack_var_net'] = ValueNets.ActionValueNetwork = ValueNets.ActionValueNetwork(
                         obs_shapes=self.obs_shapes,
                         ac_dim=self.ac_dim,
@@ -215,7 +219,9 @@ class IDQL(PolicyAlgo, ValueAlgo):
         input_batch["actions"] = batch["actions"][:, (To - 1):(Tp + To - 1), :]
         input_batch["dones"] = batch["dones"][:, (To - 1):(Tp + To - 1)]
         input_batch["rewards"] = batch["rewards"][:, (To - 1):(Tp + To - 1)]
-
+        if self.algo_config.lipschitz and not self.algo_config.lipschitz_slack:
+            input_batch["entropy"] = batch["entropy"][:, (To - 1):(Tp + To - 1)]
+        
         return TensorUtils.to_device(TensorUtils.to_float(input_batch), self.device)
 
     def train_on_batch(self, batch, epoch, validate=False):
@@ -521,37 +527,76 @@ class IDQL(PolicyAlgo, ValueAlgo):
                 actor_loss = weights * actor_loss - self.algo_config.lipschitz_weight * avg_slack_size
                 info["actor/slack_size"] = avg_slack_size
             info["actor/spectral_norm"] = spectral_norm
+        # elif self.algo_config.lipschitz_denoiser:
+        #     n_samples = 5
+            
+        #     obs_cond_extended = torch.repeat_interleave(obs_cond, n_samples, dim=0)
+        #     noisy_actions_extended = torch.repeat_interleave(noisy_actions, n_samples, dim=0)
+        #     obs_cond_noise = torch.randn_like(obs_cond_extended, device=self.device)
+        #     timesteps_extended = torch.randint(
+        #         0, self.noise_scheduler.config.num_train_timesteps, 
+        #         (B*n_samples,), device=self.device
+        #     ).long()
+        #     # enforce lipschitz on the first action only if action chunking
+        #     noise_pred_extended = torch.repeat_interleave(noise_pred, n_samples, dim=0)[:, 0]
+        #     noise_pred_noise = self.nets['policy']['noise_pred_net'](
+        #         noisy_actions_extended, timesteps_extended, global_cond=obs_cond_noise)[:, 0]
+        #     output_diff = torch.linalg.norm(noise_pred_noise - noise_pred_extended, dim=-1)
+        #     noise_magnitude = torch.linalg.norm(obs_cond_noise, dim=-1)
+        #     lipschitz_penalty = torch.relu(output_diff - self.algo_config.lipschitz_constant * noise_magnitude)
+        #     # reshape lipschitz penalty from (B*n_samples, D1, D2, ...) to (B, n_samples, D1, D2, ...)
+        #     lipschitz_penalty = lipschitz_penalty.reshape(B, n_samples, *lipschitz_penalty.shape[1:])
+        #     # take mean over n_samples dimension
+        #     lipschitz_penalty = lipschitz_penalty.mean(dim=1)
+        #     obs_dict = {k: batch["obs"][k][:, To - 1, :] for k in batch["obs"]}
+        #     actions = batch['actions'][:, 0, :]
+        #     slack = self.nets['policy']['slack_var_net'](obs_dict=obs_dict, acts=actions)[:, 0]
+        #     lipschitz_penalty = slack * lipschitz_penalty + 1 - torch.exp(-0.1 * torch.abs(slack).mean())
+        #     lipschitz_penalty = self.algo_config.lipschitz_weight * lipschitz_penalty.mean()
+            
+        #     actor_loss = actor_loss + lipschitz_penalty
+            
+        #     info["actor/lipschitz_penalty"] = lipschitz_penalty
         elif self.algo_config.lipschitz:
             n_samples = 5
+
+            inputs_extended = {k: torch.repeat_interleave(batch["obs"][k][:, To - 1, :], n_samples, dim=0) for k in batch["obs"]}
+            delta_inputs = {k: torch.randn_like(inputs_extended[k], device=self.device) for k in inputs_extended}
             
-            obs_cond_extended = torch.repeat_interleave(obs_cond, n_samples, dim=0)
-            noisy_actions_extended = torch.repeat_interleave(noisy_actions, n_samples, dim=0)
-            obs_cond_noise = torch.randn_like(obs_cond_extended, device=self.device)
-            timesteps_extended = torch.randint(
-                0, self.noise_scheduler.config.num_train_timesteps, 
-                (B*n_samples,), device=self.device
-            ).long()
-            # enforce lipschitz on the first action only if action chunking
-            noise_pred_extended = torch.repeat_interleave(noise_pred, n_samples, dim=0)[:, 0]
-            noise_pred_noise = self.nets['policy']['noise_pred_net'](
-                noisy_actions_extended, timesteps_extended, global_cond=obs_cond_noise)[:, 0]
-            output_diff = torch.linalg.norm(noise_pred_noise - noise_pred_extended, dim=-1)
-            noise_magnitude = torch.linalg.norm(obs_cond_noise, dim=-1)
+            inputs_noisy = {k: inputs_extended[k] + delta_inputs[k] for k in inputs_extended}
+   
+            # shape (n_samples * B, D)
+            obs_features_noisy = self.nets['policy']['obs_encoder'](obs=inputs_noisy, goal=None)
+            obs_features_extended = torch.repeat_interleave(obs_features[:, -1, :], n_samples, dim=0)
+            
+            # shape (n_samples * B)
+            output_diff = torch.linalg.norm(obs_features_noisy - obs_features_extended, dim=-1)
+            noise_magnitude = torch.linalg.norm(torch.concatenate([delta_inputs[k] for k in delta_inputs], dim=-1), dim=-1)
+
             lipschitz_penalty = torch.relu(output_diff - self.algo_config.lipschitz_constant * noise_magnitude)
             # reshape lipschitz penalty from (B*n_samples, D1, D2, ...) to (B, n_samples, D1, D2, ...)
             lipschitz_penalty = lipschitz_penalty.reshape(B, n_samples, *lipschitz_penalty.shape[1:])
-            # take mean over n_samples dimension
+             
+            # take mean over n_samples dimension -> shape (B,)
             lipschitz_penalty = lipschitz_penalty.mean(dim=1)
-            obs_dict = {k: batch["obs"][k][:, To - 1, :] for k in batch["obs"]}
-            actions = batch['actions'][:, 0, :]
-            slack = self.nets['policy']['slack_var_net'](obs_dict=obs_dict, acts=actions)[:, 0]
-            lipschitz_penalty = slack * lipschitz_penalty + 1 - torch.exp(-0.1 * torch.abs(slack).mean())
-            lipschitz_penalty = self.algo_config.lipschitz_weight * lipschitz_penalty.mean()
             
-            actor_loss = actor_loss + lipschitz_penalty
+            if self.algo_config.lipschitz_slack:
+                obs_dict = {k: batch["obs"][k][:, To - 1, :] for k in batch["obs"]}
+                actions = batch['actions'][:, 0, :]
+
+                slack = self.nets['policy']['slack_var_net'](obs_dict=obs_dict, acts=actions)
+                lipschitz_penalty = slack * lipschitz_penalty + 1 - torch.exp(-0.1 * torch.abs(slack).mean())
+                lipschitz_penalty = self.algo_config.lipschitz_weight * lipschitz_penalty.mean()
+            else:
+                entropies = batch['entropy'][:, 0]
+                # sigmoid
+                entropy_weight = 1 / (1 + torch.exp(-5 * (entropies - 0.5)))
+                lipschitz_penalty = (self.algo_config.lipschitz_weight * lipschitz_penalty * entropy_weight).mean()
+                
+                actor_loss = actor_loss + lipschitz_penalty
             
             info["actor/lipschitz_penalty"] = lipschitz_penalty
-
+            
         info["actor/loss"] = actor_loss
 
         if not self.algo_config.use_bc:

@@ -160,7 +160,8 @@
         "spectral_norm_value": false,
         "lipschitz": false,
         "lipschitz_constant": 3.0,
-        "lipschitz_weight": 0.005
+        "lipschitz_weight": 0.005,
+        "lipschitz_slack": false
     },
     "observation": {
         "modalities": {
