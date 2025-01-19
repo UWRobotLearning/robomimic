@@ -559,24 +559,44 @@ class IDQL(PolicyAlgo, ValueAlgo):
         #     info["actor/lipschitz_penalty"] = lipschitz_penalty
         elif self.algo_config.lipschitz:
             n_samples = 5
-
-            inputs_extended = {k: torch.repeat_interleave(batch["obs"][k][:, To - 1, :], n_samples, dim=0) for k in batch["obs"]}
-            delta_inputs = {k: torch.randn_like(inputs_extended[k], device=self.device) for k in inputs_extended}
             
-            inputs_noisy = {k: inputs_extended[k] + delta_inputs[k] for k in inputs_extended}
-   
-            # shape (n_samples * B, D)
-            obs_features_noisy = self.nets['policy']['obs_encoder'](obs=inputs_noisy, goal=None)
-            obs_features_extended = torch.repeat_interleave(obs_features[:, -1, :], n_samples, dim=0)
+            try:
+                lipschitz_denoiser = self.algo_config.lipschitz_denoiser
+            except:
+                lipschitz_denoiser = False
+                
+            if lipschitz_denoiser:
+                obs_cond_extended = torch.repeat_interleave(obs_cond, n_samples, dim=0)
+                noisy_actions_extended = torch.repeat_interleave(noisy_actions, n_samples, dim=0)
+                obs_cond_noise = torch.randn_like(obs_cond_extended, device=self.device)
+                timesteps_extended = torch.randint(
+                    0, self.noise_scheduler.config.num_train_timesteps, 
+                    (B*n_samples,), device=self.device
+                ).long()
+                # enforce lipschitz on the first action only if action chunking
+                noise_pred_extended = torch.repeat_interleave(noise_pred, n_samples, dim=0)[:, 0]
+                noise_pred_noise = self.nets['policy']['noise_pred_net'](
+                    noisy_actions_extended, timesteps_extended, global_cond=obs_cond_noise)[:, 0]
+                output_diff = torch.linalg.norm(noise_pred_noise - noise_pred_extended, dim=-1)
+                noise_magnitude = torch.linalg.norm(obs_cond_noise, dim=-1)
+            else:
+                inputs_extended = {k: torch.repeat_interleave(batch["obs"][k][:, To - 1, :], n_samples, dim=0) for k in batch["obs"]}
+                delta_inputs = {k: torch.randn_like(inputs_extended[k], device=self.device) for k in inputs_extended}
+                
+                inputs_noisy = {k: inputs_extended[k] + delta_inputs[k] for k in inputs_extended}
+    
+                # shape (n_samples * B, D)
+                obs_features_noisy = self.nets['policy']['obs_encoder'](obs=inputs_noisy, goal=None)
+                obs_features_extended = torch.repeat_interleave(obs_features[:, -1, :], n_samples, dim=0)
+                
+                # shape (n_samples * B)
+                output_diff = torch.linalg.norm(obs_features_noisy - obs_features_extended, dim=-1)
+                noise_magnitude = torch.linalg.norm(torch.concatenate([delta_inputs[k] for k in delta_inputs], dim=-1), dim=-1)
             
-            # shape (n_samples * B)
-            output_diff = torch.linalg.norm(obs_features_noisy - obs_features_extended, dim=-1)
-            noise_magnitude = torch.linalg.norm(torch.concatenate([delta_inputs[k] for k in delta_inputs], dim=-1), dim=-1)
-
             lipschitz_penalty = torch.relu(output_diff - self.algo_config.lipschitz_constant * noise_magnitude)
             # reshape lipschitz penalty from (B*n_samples, D1, D2, ...) to (B, n_samples, D1, D2, ...)
             lipschitz_penalty = lipschitz_penalty.reshape(B, n_samples, *lipschitz_penalty.shape[1:])
-             
+            
             # take mean over n_samples dimension -> shape (B,)
             lipschitz_penalty = lipschitz_penalty.mean(dim=1)
             

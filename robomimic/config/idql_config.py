@@ -100,3 +100,4 @@ class IDQLConfig(BaseConfig):
         self.algo.lipschitz_constant = 3.0
         self.algo.lipschitz_weight = 0.005
         self.algo.lipschitz_slack = False
+        self.algo.lipschitz_denoiser = False

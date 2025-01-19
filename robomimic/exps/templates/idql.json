@@ -161,7 +161,8 @@
         "lipschitz": false,
         "lipschitz_constant": 3.0,
         "lipschitz_weight": 0.005,
-        "lipschitz_slack": false
+        "lipschitz_slack": false,
+        "lipschitz_denoiser": false
     },
     "observation": {
         "modalities": {
