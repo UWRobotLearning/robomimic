@@ -32,6 +32,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         hdf5_normalize_obs=False,
         filter_by_attribute=None,
         load_next_obs=True,
+        q_transformer=False,
     ):
         """
         Dataset class for fetching sequences of experience.
@@ -112,6 +113,8 @@ class SequenceDataset(torch.utils.data.Dataset):
         self.pad_seq_length = pad_seq_length
         self.pad_frame_stack = pad_frame_stack
         self.get_pad_mask = get_pad_mask
+        
+        self.q_transformer = q_transformer
 
         self.load_demo_info(filter_by_attribute=self.filter_by_attribute)
 
@@ -464,7 +467,22 @@ class SequenceDataset(torch.utils.data.Dataset):
             )
             meta["goal_obs"] = {k: goal[k][0] for k in goal}  # remove sequence dimension for goal
 
+        if self.q_transformer:
+            instruction = np.zeros(shape=(1, 3))
+            next_instruction = np.zeros(shape=(1, 3))
+            obs = self._convert_obs_dict_to_stacked_img(meta['obs'])
+            next_obs = self._convert_obs_dict_to_stacked_img(meta['next_obs'])
+            actions = meta['actions']
+            reward = meta['rewards']
+            done = meta['dones']
+            return instruction, obs, actions, next_obs, next_instruction,reward, done
         return meta
+    
+    def _convert_obs_dict_to_stacked_img(self, obs_dict):
+        img_stack = []
+        for k in obs_dict:
+            img_stack.append(obs_dict[k])
+        return np.concatenate(img_stack, axis=0)
 
     def get_sequence_from_demo(self, demo_id, index_in_demo, keys, num_frames_to_stack=0, seq_length=1):
         """

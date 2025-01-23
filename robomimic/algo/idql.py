@@ -592,8 +592,9 @@ class IDQL(PolicyAlgo, ValueAlgo):
                 # shape (n_samples * B)
                 output_diff = torch.linalg.norm(obs_features_noisy - obs_features_extended, dim=-1)
                 noise_magnitude = torch.linalg.norm(torch.concatenate([delta_inputs[k] for k in delta_inputs], dim=-1), dim=-1)
-            
-            lipschitz_penalty = torch.relu(output_diff - self.algo_config.lipschitz_constant * noise_magnitude)
+
+            lipschitz_penalty = output_diff / noise_magnitude            
+            # lipschitz_penalty = torch.relu(output_diff - self.algo_config.lipschitz_constant * noise_magnitude)
             # reshape lipschitz penalty from (B*n_samples, D1, D2, ...) to (B, n_samples, D1, D2, ...)
             lipschitz_penalty = lipschitz_penalty.reshape(B, n_samples, *lipschitz_penalty.shape[1:])
             
