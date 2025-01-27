@@ -354,7 +354,7 @@ def config_from_checkpoint(algo_name=None, ckpt_path=None, ckpt_dict=None, verbo
     return config, ckpt_dict
 
 
-def policy_from_checkpoint(device=None, ckpt_path=None, ckpt_dict=None, verbose=False):
+def policy_from_checkpoint(device=None, ckpt_path=None, ckpt_dict=None, verbose=False, discriminator=False):
     """
     This function restores a trained policy from a checkpoint file or
     loaded model dictionary.
@@ -400,14 +400,18 @@ def policy_from_checkpoint(device=None, ckpt_path=None, ckpt_dict=None, verbose=
         # get torch device
         device = TorchUtils.get_torch_device(try_to_use_cuda=config.train.cuda)
 
-    # create model and load weights
-    model = algo_factory(
-        algo_name,
-        config,
-        obs_key_shapes=shape_meta["all_shapes"],
-        ac_dim=shape_meta["ac_dim"],
-        device=device,
-    )
+    if discriminator:
+        import sim_pipeline.ilid.discriminator as d 
+        model = d.Discriminator(config, shape_meta["all_shapes"], device=device)
+    else:
+        # create model and load weights
+        model = algo_factory(
+            algo_name,
+            config,
+            obs_key_shapes=shape_meta["all_shapes"],
+            ac_dim=shape_meta["ac_dim"],
+            device=device,
+        )
     model.deserialize(ckpt_dict["model"])
     model.set_eval()
     model = RolloutPolicy(model, obs_normalization_stats=obs_normalization_stats)

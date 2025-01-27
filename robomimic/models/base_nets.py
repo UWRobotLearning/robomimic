@@ -257,7 +257,7 @@ class MLP(Module):
         self._layer_func = layer_func
         self.nets = layers
         self._model = nn.Sequential(*layers)
-
+        
         self._layer_dims = layer_dims
         self._input_dim = input_dim
         self._output_dim = output_dim

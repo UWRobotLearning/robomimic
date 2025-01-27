@@ -655,7 +655,7 @@ class MIMO_MLP(Module):
         assert isinstance(input_obs_group_shapes, OrderedDict)
         assert np.all([isinstance(input_obs_group_shapes[k], OrderedDict) for k in input_obs_group_shapes])
         assert isinstance(output_shapes, OrderedDict)
-
+        
         self.input_obs_group_shapes = input_obs_group_shapes
         self.output_shapes = output_shapes
 
@@ -672,8 +672,6 @@ class MIMO_MLP(Module):
         # flat encoder output dimension
         mlp_input_dim = self.nets["encoder"].output_shape()[0]
         
-        output_activation = activation if output_activation is None else output_activation
-
         # intermediate MLP layers
         self.nets["mlp"] = MLP(
             input_dim=mlp_input_dim,
