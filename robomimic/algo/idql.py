@@ -132,6 +132,15 @@ class IDQL(PolicyAlgo, ValueAlgo):
             )
         else:
             raise RuntimeError()
+        
+        try:
+            late_fusion_key = self.algo_config.critic.late_fusion_key
+        except:
+            late_fusion_key = None
+        try:
+            late_fusion_layer_index = self.algo_config.critic.late_fusion_layer_index
+        except:
+            late_fusion_layer_index = 1
 
         # Critics
         self.nets["critic"] = nn.ModuleList()
@@ -146,8 +155,8 @@ class IDQL(PolicyAlgo, ValueAlgo):
                     encoder_kwargs=ObsUtils.obs_encoder_kwargs_from_config(self.obs_config.encoder),
                     stochastic_encoder=self.algo_config.bottleneck_value,
                     spectral_norm=self.algo_config.spectral_norm_value,
-                    late_fusion_key=self.algo_config.critic.late_fusion_key,
-                    late_fusion_layer_index=self.algo_config.critic.late_fusion_layer_index,
+                    late_fusion_key=late_fusion_key,
+                    late_fusion_layer_index=late_fusion_layer_index,
                 )
                 net_list.append(critic)
 
@@ -159,8 +168,8 @@ class IDQL(PolicyAlgo, ValueAlgo):
             encoder_kwargs=ObsUtils.obs_encoder_kwargs_from_config(self.obs_config.encoder),
             stochastic_encoder=False,
             spectral_norm=False,
-            late_fusion_key=self.algo_config.critic.late_fusion_key,
-            late_fusion_layer_index=self.algo_config.critic.late_fusion_layer_index,
+            late_fusion_key=late_fusion_key,
+            late_fusion_layer_index=late_fusion_layer_index,
         )
 
         try:
