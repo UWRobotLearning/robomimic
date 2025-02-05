@@ -464,7 +464,7 @@ class CropRandomizer(Randomizer):
         assert len(input_shape) == 3 # (C, H, W)
         assert crop_height < input_shape[1]
         assert crop_width < input_shape[2]
-
+        
         self.input_shape = input_shape
         self.crop_height = crop_height
         self.crop_width = crop_width
@@ -518,6 +518,7 @@ class CropRandomizer(Randomizer):
         inputs to [B * N, ...].
         """
         assert len(inputs.shape) >= 3 # must have at least (C, H, W) dimensions
+        
         out, _ = ObsUtils.sample_random_image_crops(
             images=inputs,
             crop_height=self.crop_height,

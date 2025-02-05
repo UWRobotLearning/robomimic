@@ -616,6 +616,8 @@ class MIMO_MLP(Module):
         encoder_kwargs=None,
         stochastic_encoder=False,
         spectral_norm=False,
+        late_fusion_dim=None,
+        late_fusion_layer_index=1,
     ):
         """
         Args:
@@ -680,6 +682,8 @@ class MIMO_MLP(Module):
             layer_func=layer_func,
             activation=activation,
             output_activation=output_activation, # make sure non-linearity is applied before decoder
+            late_fusion_dim=late_fusion_dim,
+            late_fusion_layer_index=late_fusion_layer_index,
         )
 
         # decoder for output modalities
@@ -709,8 +713,9 @@ class MIMO_MLP(Module):
             outputs (dict): dictionary of output torch.Tensors, that corresponds
                 to @self.output_shapes
         """
+        late_fusion = inputs.pop("late_fusion", None)
         enc_outputs = self.nets["encoder"](**inputs)
-        mlp_out = self.nets["mlp"](enc_outputs)
+        mlp_out = self.nets["mlp"](enc_outputs, late_fusion_input=late_fusion)
         return self.nets["decoder"](mlp_out)
 
     def _to_string(self):

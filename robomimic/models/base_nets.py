@@ -214,6 +214,8 @@ class MLP(Module):
         dropouts=None,
         normalization=False,
         output_activation=None,
+        late_fusion_dim=None,  # New parameter for late fusion
+        late_fusion_layer_index=1,  # New parameter to specify the layer for late fusion
     ):
         """
         Args:
@@ -235,6 +237,10 @@ class MLP(Module):
             normalization (bool): if True, apply layer normalization after each layer
 
             output_activation: if provided, applies the provided non-linearity to the output layer
+
+            late_fusion_dim (int): dimension of the input to be concatenated for late fusion
+
+            late_fusion_layer_index (int): index of the layer where late fusion should occur
         """
         super(MLP, self).__init__()
         layers = []
@@ -244,6 +250,8 @@ class MLP(Module):
         if dropouts is not None:
             assert(len(dropouts) == len(layer_dims))
         for i, l in enumerate(layer_dims):
+            if late_fusion_dim is not None and late_fusion_layer_index == i:
+                dim += late_fusion_dim  # Adjust dimension for late fusion
             layers.append(layer_func(dim, l, **layer_func_kwargs))
             if normalization:
                 layers.append(nn.LayerNorm(l))
@@ -251,6 +259,8 @@ class MLP(Module):
             if dropouts is not None and dropouts[i] > 0.:
                 layers.append(nn.Dropout(dropouts[i]))
             dim = l
+        if late_fusion_dim is not None and late_fusion_layer_index == len(layer_dims):
+            dim += late_fusion_dim  # Adjust dimension for late fusion at the output layer
         layers.append(layer_func(dim, output_dim))
         if output_activation is not None:
             layers.append(output_activation())
@@ -264,6 +274,8 @@ class MLP(Module):
         self._dropouts = dropouts
         self._act = activation
         self._output_act = output_activation
+        self._late_fusion_dim = late_fusion_dim
+        self._late_fusion_layer_index = late_fusion_layer_index
 
     def output_shape(self, input_shape=None):
         """
@@ -279,11 +291,16 @@ class MLP(Module):
         """
         return [self._output_dim]
 
-    def forward(self, inputs):
+    def forward(self, inputs, late_fusion_input=None):
         """
         Forward pass.
         """
-        return self._model(inputs)
+        x = inputs
+        for i, layer in enumerate(self._model):
+            if self._late_fusion_dim is not None and self._late_fusion_layer_index == i:
+                x = torch.cat((x, late_fusion_input), dim=-1)  # Concatenate late fusion input
+            x = layer(x)
+        return x
 
     def __repr__(self):
         """Pretty print network."""

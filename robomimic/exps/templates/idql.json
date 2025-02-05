@@ -110,7 +110,9 @@
                 400
             ],
             "use_huber": false,
-            "max_gradient_norm": null
+            "max_gradient_norm": null,
+            "late_fusion_key": null,
+            "late_fusion_layer_index": 1
         },
         "unet": {
             "diffusion_step_embed_dim": 256,

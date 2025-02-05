@@ -101,3 +101,6 @@ class IDQLConfig(BaseConfig):
         self.algo.lipschitz_weight = 0.005
         self.algo.lipschitz_slack = False
         self.algo.lipschitz_denoiser = False
+
+        self.algo.critic.late_fusion_key = None
+        self.algo.critic.late_fusion_layer_index = 1

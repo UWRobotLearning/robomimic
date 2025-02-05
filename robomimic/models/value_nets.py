@@ -31,6 +31,8 @@ class ValueNetwork(MIMO_MLP):
         encoder_kwargs=None,
         stochastic_encoder=False,
         spectral_norm=False,
+        late_fusion_key=None,
+        late_fusion_layer_index=1,
     ):
         """
         Args:
@@ -71,6 +73,14 @@ class ValueNetwork(MIMO_MLP):
 
         assert isinstance(obs_shapes, OrderedDict)
         self.obs_shapes = obs_shapes
+        
+        if late_fusion_key is not None:
+            late_fusion_dim = sum(self.obs_shapes[late_fusion_key])
+            self.late_fusion = True
+        else:
+            late_fusion_dim = None
+            self.late_fusion = False
+        self.late_fusion_key = late_fusion_key
 
         # set up different observation groups for @MIMO_MLP
         observation_group_shapes = OrderedDict()
@@ -93,6 +103,8 @@ class ValueNetwork(MIMO_MLP):
             encoder_kwargs=encoder_kwargs,
             stochastic_encoder=stochastic_encoder,
             spectral_norm=spectral_norm,
+            late_fusion_dim=late_fusion_dim,
+            late_fusion_layer_index=late_fusion_layer_index,
         )
 
     def _get_output_shapes(self):
@@ -121,7 +133,11 @@ class ValueNetwork(MIMO_MLP):
         """
         Forward through value network, and then optionally use tanh scaling.
         """
-        values = super(ValueNetwork, self).forward(obs=obs_dict, goal=goal_dict)["value"]
+        if self.late_fusion:
+            late_fusion_input = obs_dict[self.late_fusion_key].flatten(start_dim=1)
+        else:
+            late_fusion_input = None    
+        values = super(ValueNetwork, self).forward(obs=obs_dict, goal=goal_dict, late_fusion=late_fusion_input)["value"]
         if self.value_bounds is not None:
             values = self._value_offset + self._value_scale * torch.tanh(values)
         return values
@@ -145,6 +161,8 @@ class ActionValueNetwork(ValueNetwork):
         encoder_kwargs=None,
         stochastic_encoder=False,
         spectral_norm=False,
+        late_fusion_key=None,
+        late_fusion_layer_index=1,
     ):
         """
         Args:
@@ -194,6 +212,8 @@ class ActionValueNetwork(ValueNetwork):
             encoder_kwargs=encoder_kwargs,
             stochastic_encoder=stochastic_encoder,
             spectral_norm=spectral_norm,
+            late_fusion_key=late_fusion_key,
+            late_fusion_layer_index=late_fusion_layer_index,
         )
 
     def forward(self, obs_dict, acts, goal_dict=None):
