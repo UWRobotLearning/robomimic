@@ -212,6 +212,7 @@ class EnvRobosuite(EB.EnvBase):
         if di is None:
             di = self.env._get_observations(force_update=True) if self._is_v1 else self.env._get_observation()
         ret = {}
+
         for k in di:
             if (k in ObsUtils.OBS_KEYS_TO_MODALITIES) and ObsUtils.key_is_obs_modality(key=k, obs_modality="rgb"):
                 # by default images from mujoco are flipped in height

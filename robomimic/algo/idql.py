@@ -295,6 +295,7 @@ class IDQL(PolicyAlgo, ValueAlgo):
                 else:
                     q_pred = None
                     v_pred = None
+                    
                 # Compute loss for actor
                 actor_loss, actor_info = self._compute_actor_loss(batch, q_pred, v_pred)
 
@@ -308,7 +309,7 @@ class IDQL(PolicyAlgo, ValueAlgo):
                         self._update_actor(actor_loss)
             else:
                 raise NotImplementedError
-
+            
             # Update info
             info.update(actor_info)
             if not self.algo_config.use_bc:
@@ -317,6 +318,13 @@ class IDQL(PolicyAlgo, ValueAlgo):
         # Return stats
         return info
 
+    def compute_updated_actions(self, batch):
+        To = self.algo_config.horizon.observation_horizon
+        Tp = self.algo_config.horizon.prediction_horizon
+        B = batch['actions'].shape[0]
+
+        raise NotImplementedError
+    
     def _compute_critic_loss(self, batch, i=0):
         """
         Helper function for computing Q and V losses. Called by @train_on_batch
@@ -454,7 +462,7 @@ class IDQL(PolicyAlgo, ValueAlgo):
     
         info = OrderedDict()
         actions = batch['actions']
-
+        
         To = self.algo_config.horizon.observation_horizon
         
         # encode obs
@@ -471,10 +479,7 @@ class IDQL(PolicyAlgo, ValueAlgo):
         assert obs_features.ndim == 3  # [B, T, D]
 
         obs_cond = obs_features.flatten(start_dim=1)
-        
-        # inpainting mask
-        # condition_mask = self.mask_generator(actions.shape)
-        
+                
         # sample noise to add to actions
         noise = torch.randn(actions.shape, device=self.device)
         
@@ -488,10 +493,7 @@ class IDQL(PolicyAlgo, ValueAlgo):
         # (this is the forward diffusion process)
         noisy_actions = self.noise_scheduler.add_noise(
             actions, noise, timesteps)
-        
-        # # compute loss mask
-        # loss_mask = ~condition_mask
-        
+                
         # # apply conditioning
         # noisy_actions[condition_mask] = actions[condition_mask]
         # predict the noise residual
@@ -504,20 +506,7 @@ class IDQL(PolicyAlgo, ValueAlgo):
         self.ema.step(self.nets['policy'].parameters())
 
         info["actor/bc_loss"] = bc_loss.mean()
-        
-        if not self.algo_config.use_bc:
-            # compute advantage estimate
-            if self.multi_step_method == MultiStepMethod.REPEAT:
-                q_pred = torch.stack(q_pred)
-                v_pred = torch.stack(v_pred)
-                discounts = self.algo_config.discount ** torch.arange(len(q_pred), dtype=torch.float32, device=self.device).reshape(len(q_pred), 1, 1)
-                adv = torch.sum(discounts * (q_pred - v_pred), dim=0)
-            elif self.multi_step_method == MultiStepMethod.ONE_STEP:
-                adv = q_pred - v_pred
-            
-            # compute weights
-            weights = self._get_adv_weights(adv)
-        
+                
         actor_loss = (bc_loss).mean()
         if self.algo_config.bottleneck_policy:
             # compute KL divergence between encoder distribution and standard normal
@@ -632,11 +621,6 @@ class IDQL(PolicyAlgo, ValueAlgo):
             info["actor/lipschitz_penalty"] = lipschitz_penalty
             
         info["actor/loss"] = actor_loss
-
-        if not self.algo_config.use_bc:
-            # log adv-related values
-            info["adv/adv"] = adv
-            info["adv/adv_weight"] = weights
         
         # Return stats
         return actor_loss, info
@@ -705,8 +689,6 @@ class IDQL(PolicyAlgo, ValueAlgo):
 
             self._log_data_attributes(log, info, "vf/q_pred")
             self._log_data_attributes(log, info, "vf/v_pred")
-            self._log_data_attributes(log, info, "adv/adv")
-            self._log_data_attributes(log, info, "adv/adv_weight")
 
             if self.algo_config.bottleneck_value:
                 self._log_data_attributes(log, info, "critic/critic1_kl_div")
@@ -789,6 +771,7 @@ class IDQL(PolicyAlgo, ValueAlgo):
         for k in self.obs_shapes:
             # first two dimensions should be [B, T] for inputs
             assert inputs['obs'][k].ndim - 2 == len(self.obs_shapes[k])
+        import ipdb; ipdb.set_trace()
         obs_features = TensorUtils.time_distributed(inputs, self.nets['policy']['obs_encoder'], inputs_as_kwargs=True)
         assert obs_features.ndim == 3  # [B, T, D]
         B = obs_features.shape[0]
@@ -803,7 +786,7 @@ class IDQL(PolicyAlgo, ValueAlgo):
         
         # init scheduler
         self.noise_scheduler.set_timesteps(num_inference_timesteps)
-
+        
         for k in self.noise_scheduler.timesteps:
             # predict noise
             noise_pred = nets['policy']['noise_pred_net'](

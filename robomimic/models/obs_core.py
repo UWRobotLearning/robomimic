@@ -11,6 +11,7 @@ import random
 
 import torch
 import torch.nn as nn
+from torchvision import transforms
 from torchvision.transforms import Lambda, Compose
 import torchvision.transforms.functional as TVF
 
@@ -312,6 +313,61 @@ class ScanCore(EncoderCore, BaseNets.ConvBase):
         return msg
 
 
+class DinoV2Core(EncoderCore, Module):
+    def __init__(
+        self,
+        input_shape,
+        backbone_name="dinov2_vits14",
+        frozen=True,
+    ):
+        super(DinoV2Core, self).__init__(input_shape=input_shape)
+        
+        self.backbone_model = torch.hub.load('facebookresearch/dinov2', backbone_name)
+        
+        self.transform = transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],  # typically ImageNet means
+                                std=[0.229, 0.224, 0.225]),  # typically ImageNet stds
+        ])
+        
+        self.frozen = frozen
+        
+        self.feature_dimensions = {
+            'dinov2_vits14': 384,
+            'dinov2_vitb14': 768,
+            'dinov2_vitl14': 1024,
+            'dinov2_vitg14': 1536,
+        }[backbone_name]
+        # for concatentation of class and patch tokens
+        self.feature_dimensions = self.feature_dimensions * 2
+        
+    def forward(self, inputs):
+        # needs to be (C, H, W) and float32
+        inputs = self.transform(inputs)
+        if self.frozen:
+            with torch.no_grad():
+                features = self.backbone_model.forward_features(inputs)
+        else:
+            features = self.backbone_model.forward_features(inputs)['x_norm_patchtokens']
+        patch_tokens = features['x_norm_patchtokens']
+        class_tokens = features['x_norm_clstoken']
+        # GeM pooling on patch tokens
+        patch_dim = int(np.sqrt(patch_tokens.shape[-2]))
+        patch_tokens = patch_tokens.reshape(patch_tokens.shape[0], patch_dim, patch_dim, -1)
+        patch_tokens = patch_tokens.clamp(min=1e-6).permute(0, 3, 1, 2)
+        patch_tokens = nn.functional.avg_pool2d(patch_tokens.pow(4), (patch_dim, patch_dim)).pow(1/4).reshape(patch_tokens.shape[0], -1)
+        
+        # Concatenate with class token
+        features = torch.cat([class_tokens, patch_tokens], dim=-1)
+
+        features = features.flatten(start_dim=1)
+        return features
+    
+    def output_shape(self, input_shape):
+        return [self.feature_dimensions]
+        
+        
 """
 ================================================
 Observation Randomizer Networks

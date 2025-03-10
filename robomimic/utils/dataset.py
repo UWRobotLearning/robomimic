@@ -33,6 +33,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         filter_by_attribute=None,
         load_next_obs=True,
         q_transformer=False,
+        support_update=False,
     ):
         """
         Dataset class for fetching sequences of experience.
@@ -103,6 +104,8 @@ class SequenceDataset(torch.utils.data.Dataset):
 
         self.seq_length = seq_length
         assert self.seq_length >= 1
+        
+        self.support_update = support_update
 
         self.goal_mode = goal_mode
         if self.goal_mode is not None:
@@ -403,9 +406,11 @@ class SequenceDataset(torch.utils.data.Dataset):
         """
         Fetch dataset sequence @index (inferred through internal index map), using the getitem_cache if available.
         """
-        if self.hdf5_cache_mode == "all":
-            return self.getitem_cache[index]
-        return self.get_item(index)
+        data = self.getitem_cache[index] if self.hdf5_cache_mode == "all" else self.get_item(index)
+        if self.support_update:
+            return index, data
+        return data
+
 
     def get_item(self, index):
         """
@@ -615,6 +620,60 @@ class SequenceDataset(torch.utils.data.Dataset):
 
         meta["ep"] = demo_id
         return meta
+    
+    def update_actions(self, batch_indices, new_actions):
+        """
+        Updates actions in the dataset for the given batch indices.
+        
+        Args:
+            batch_indices (tensor): Indices from the batch that need updating
+            new_actions (tensor): New actions to insert [B x seq_length x action_dim]
+        """
+        assert self.hdf5_cache_mode == "all", "Action updates only supported with full caching"
+        assert self.pad_seq_length == True, "Action updates only supported with padding"
+        
+        for batch_idx, new_action_seq in zip(batch_indices, new_actions):
+            # Get demo info for this index
+            demo_id = self._index_to_demo_id[batch_idx]
+            demo_start_index = self._demo_id_to_start_indices[demo_id]
+            demo_length = self._demo_id_to_demo_length[demo_id]
+            
+            # Calculate actual index in demo
+            demo_index_offset = 0 if self.pad_frame_stack else (self.n_frame_stack - 1)
+            index_in_demo = batch_idx - demo_start_index + demo_index_offset
+            
+            end_seq = self.seq_length
+            
+            # if the sequence spills over to the end, we need to update the padding
+            if index_in_demo + self.seq_length >= demo_length:
+                max_pad_idx = demo_length + self.seq_length - 2
+                end_seq = max_pad_idx - index_in_demo + 1
+                # pad new_action_seq with the last action
+                extra_pad = end_seq - self.seq_length
+                new_action_seq = np.concatenate([new_action_seq, new_action_seq[-1].repeat(extra_pad, axis=0)], axis=0)
+            
+            # For each timestep in the sequence
+            for seq_idx in range(end_seq):
+                curr_demo_idx = index_in_demo + seq_idx           
+                                    
+                # Find all dataset indices that need this action updated
+                update_start = max(0, curr_demo_idx - (self.seq_length - 1))
+                update_end = min(demo_length, curr_demo_idx + self.n_frame_stack)
+                
+                # Convert back to dataset indices
+                dataset_start_idx = demo_start_index + update_start - demo_index_offset
+                dataset_end_idx = demo_start_index + update_end - demo_index_offset
+                
+                # Update all affected cached items
+                for idx in range(dataset_start_idx, dataset_end_idx):
+                    if idx >= len(self.getitem_cache):
+                        continue
+                        
+                    # Calculate where in the sequence this action should go
+                    seq_position = curr_demo_idx - (idx - demo_start_index + demo_index_offset) + (self.n_frame_stack - 1)
+                    if 0 <= seq_position < (self.seq_length + self.n_frame_stack):
+                        self.getitem_cache[idx]["actions"][seq_position] = new_action_seq[seq_idx]
+
 
     def get_dataset_sampler(self):
         """

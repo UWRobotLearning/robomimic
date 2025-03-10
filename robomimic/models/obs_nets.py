@@ -206,6 +206,7 @@ class ObservationEncoder(Module):
         self.activation = None
         if self.feature_activation is not None:
             self.activation = self.feature_activation()
+            
     def forward(self, obs_dict):
         """
         Processes modalities according to the ordering in @self.obs_shapes. For each

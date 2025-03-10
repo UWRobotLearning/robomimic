@@ -545,6 +545,15 @@ def run_epoch(model, data_loader, epoch, validate=False, num_steps=None, obs_nor
             data_loader_iter = iter(data_loader)
             t = time.time()
             batch = next(data_loader_iter)
+            
+        try:
+            update_actions = model.algo_config.update_actions
+        except RuntimeError:
+            update_actions = False
+            
+        if update_actions:
+            index, batch = batch
+            
         timing_stats["Data_Loading"].append(time.time() - t)
 
         # process batch for training
@@ -557,6 +566,16 @@ def run_epoch(model, data_loader, epoch, validate=False, num_steps=None, obs_nor
         t = time.time()
         info = model.train_on_batch(input_batch, epoch, validate=validate)
         timing_stats["Train_Batch"].append(time.time() - t)
+        
+        t = time.time()
+        if update_actions:
+            try:
+                new_actions = model.compute_updated_actions(input_batch)
+            except AttributeError as e:
+                print(f'Algorithm class {model.algo_config.algo_name} does not support action updates.')
+                raise e
+            data_loader.dataset.update_actions(index, new_actions)
+        # timing_stats["Update_Actions"].append(time.time() - t)
 
         # tensorboard logging
         t = time.time()
