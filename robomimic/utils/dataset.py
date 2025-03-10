@@ -8,6 +8,7 @@ import numpy as np
 from copy import deepcopy
 from contextlib import contextmanager
 
+import torch
 import torch.utils.data
 
 import robomimic.utils.tensor_utils as TensorUtils
@@ -34,6 +35,9 @@ class SequenceDataset(torch.utils.data.Dataset):
         load_next_obs=True,
         q_transformer=False,
         support_update=False,
+        augment_nearby_states=False,
+        distance_threshold=0.0,
+        num_neighbors=10,
     ):
         """
         Dataset class for fetching sequences of experience.
@@ -106,6 +110,10 @@ class SequenceDataset(torch.utils.data.Dataset):
         assert self.seq_length >= 1
         
         self.support_update = support_update
+        
+        self.augment_nearby_states = augment_nearby_states
+        self.distance_threshold = distance_threshold
+        self.num_neighbors = num_neighbors
 
         self.goal_mode = goal_mode
         if self.goal_mode is not None:
@@ -125,6 +133,16 @@ class SequenceDataset(torch.utils.data.Dataset):
         self.obs_normalization_stats = None
         if self.hdf5_normalize_obs:
             self.obs_normalization_stats = self.normalize_obs()
+            
+        for k in self.obs_keys:
+            if ObsUtils.key_is_obs_modality(k, 'rgb'):
+                self.has_image_obs = True
+                break
+        else:
+            self.has_image_obs = False
+            
+        if self.augment_nearby_states and self.hdf5_cache_mode != 'all':
+            raise ValueError("Augmented states are only supported when caching all data in memory")
 
         # maybe store dataset in memory for fast access
         if self.hdf5_cache_mode in ["all", "low_dim"]:
@@ -149,11 +167,23 @@ class SequenceDataset(torch.utils.data.Dataset):
                 # cache getitem calls for even more speedup. We don't do this for
                 # "low-dim" since image observations require calls to getitem anyways.
                 print("SequenceDataset: caching get_item calls...")
-                self.getitem_cache = [self.get_item(i) for i in LogUtils.custom_tqdm(range(len(self)))]
+                self.getitem_cache = [self.get_item(i) for i in LogUtils.custom_tqdm(range(self.total_num_sequences))]
 
                 # don't need the previous cache anymore
                 del self.hdf5_cache
                 self.hdf5_cache = None
+                
+                if self.augment_nearby_states:
+                    if self.has_image_obs:
+                        # build feature extractor for images
+                        from robomimic.models.obs_core import DinoV2Core
+                        
+                        self.image_feature_extractor = DinoV2Core(input_shape=(3, 84, 84), backbone_name='dinov2_vits14', concatenate=False)
+                        self.model_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+                        self.image_feature_extractor.to(self.model_device)
+                        self.image_feature_extractor.eval()
+                        
+                    self.build_state_augmentation_data()
         else:
             self.hdf5_cache = None
 
@@ -265,6 +295,8 @@ class SequenceDataset(torch.utils.data.Dataset):
         Ensure that the torch dataloader will do a complete pass through all sequences in 
         the dataset before starting a new iteration.
         """
+        if self.augment_nearby_states:
+            return self.total_num_sequences + len(self.augmented_data)
         return self.total_num_sequences
 
     def load_dataset_in_memory(self, demo_list, hdf5_file, obs_keys, dataset_keys, load_next_obs):
@@ -406,11 +438,15 @@ class SequenceDataset(torch.utils.data.Dataset):
         """
         Fetch dataset sequence @index (inferred through internal index map), using the getitem_cache if available.
         """
+        if self.augment_nearby_states:
+            if index < self.total_num_sequences:
+                return self.getitem_cache[index]
+            else:
+                return self.augmented_data[index - self.total_num_sequences]
         data = self.getitem_cache[index] if self.hdf5_cache_mode == "all" else self.get_item(index)
         if self.support_update:
             return index, data
         return data
-
 
     def get_item(self, index):
         """
@@ -482,7 +518,103 @@ class SequenceDataset(torch.utils.data.Dataset):
             done = meta['dones']
             return instruction, obs, actions, next_obs, next_instruction,reward, done
         return meta
-    
+        
+    def build_state_augmentation_data(self):
+        """
+        Builds data structures for state augmentation by finding nearby states from different trajectories.
+        This creates a mapping from each state to a list of (state_idx, action) pairs from different trajectories
+        that are within the distance threshold.
+        """
+        print("SequenceDataset: Building state augmentation data...")
+        
+        # Extract all states from the dataset
+        all_states = []
+        state_to_demo = []  # Maps state index to demo_id
+        state_to_idx = []   # Maps state index to index in original dataset
+        
+        print('SequenceDataset: Extracting features from states...')
+        for idx in LogUtils.custom_tqdm(range(self.total_num_sequences)):
+            data = self.getitem_cache[idx]
+            # Use the first frame of the observation sequence as the state representation
+            state = self._extract_state_for_distance(data["obs"])
+            all_states.append(state)
+            state_to_demo.append(self._index_to_demo_id[idx])
+            state_to_idx.append(idx)
+        
+        # Convert to numpy array for efficient computation
+        all_states = np.array(all_states)
+        
+        # For each state, find nearby states from different trajectories
+        self.augmented_data = []
+        
+        from sklearn.neighbors import NearestNeighbors
+        # Build KNN model
+        nn_model = NearestNeighbors(n_neighbors=min(self.num_neighbors + 1, len(all_states)))
+        nn_model.fit(all_states)
+        
+        print('SequenceDataset: Finding nearest neighbors...')
+        for i in LogUtils.custom_tqdm(range(len(all_states))):
+            # Find k nearest neighbors
+            distances, indices = nn_model.kneighbors([all_states[i]], n_neighbors=min(self.num_neighbors + 1, len(all_states)))
+            
+            # Filter neighbors by distance threshold and different trajectory
+            for j, (dist, idx) in enumerate(zip(distances[0], indices[0])):
+                if i == idx:  # Skip self
+                    continue
+                if dist > self.distance_threshold:  # Skip if too far
+                    continue
+                if state_to_demo[i] == state_to_demo[idx]:  # Skip if same trajectory
+                    continue
+                
+                original_obs = self.getitem_cache[state_to_idx[i]]['obs'].copy()
+                original_next_obs = self.getitem_cache[state_to_idx[i]]['next_obs'].copy()
+                neighbor_action = self.getitem_cache[state_to_idx[idx]]['actions'].copy()
+                neighbor_reward = self.getitem_cache[state_to_idx[idx]]['rewards'].copy()
+                neighbor_done = self.getitem_cache[state_to_idx[idx]]['dones'].copy()
+                # Get the action from the neighbor
+                new_data = {
+                    'obs': original_obs,
+                    'actions': neighbor_action,
+                    'next_obs': original_next_obs,
+                    'rewards': neighbor_reward,
+                    'dones': neighbor_done,
+                }
+                self.augmented_data.append(new_data)
+        
+        print(f"SequenceDataset: Created augmentation data for {len(self.augmented_data)} states")
+
+    def _extract_state_for_distance(self, obs_dict):
+        """
+        Extract a state representation from the observation dictionary for distance calculation.
+        
+        Args:
+            obs_dict (dict): Observation dictionary
+            
+        Returns:
+            np.ndarray: State representation for distance calculation
+        """
+        
+        curr_obs_index = self.n_frame_stack - 1
+        
+        state = []
+        if self.has_image_obs:
+            for key in obs_dict:
+                if ObsUtils.key_is_obs_modality(key, 'rgb'):
+                    img = torch.from_numpy(obs_dict[key][curr_obs_index])
+                    img = ObsUtils.process_obs(obs=img, obs_modality='rgb')
+                    img = img.unsqueeze(0).to(self.model_device)
+                    features = self.image_feature_extractor(img)
+                    state.append(features.flatten().detach().cpu().numpy())
+        else:
+            for key in obs_dict:
+                if key != "pad_mask":
+                    state.append(obs_dict[key][curr_obs_index].flatten())
+                
+        state = np.concatenate(state)
+        # normalize to make euclidean distance equivalent to cosine distance ranking
+        state = state / np.linalg.norm(state)
+        return state
+
     def _convert_obs_dict_to_stacked_img(self, obs_dict):
         img_stack = []
         for k in obs_dict:
@@ -675,7 +807,7 @@ class SequenceDataset(torch.utils.data.Dataset):
                         self.getitem_cache[idx]["actions"][seq_position] = new_action_seq[seq_idx]
 
 
-    def get_dataset_sampler(self):
+    def get_dataset_sampler(self, data_source=None, generator=None):
         """
         Return instance of torch.utils.data.Sampler or None. Allows
         for dataset to define custom sampling logic, such as
@@ -683,4 +815,88 @@ class SequenceDataset(torch.utils.data.Dataset):
         See the `train` function in scripts/train.py, and torch
         `DataLoader` documentation, for more info.
         """
+        if self.augment_nearby_states:
+            return AugmentedRandomSampler(self.total_num_sequences, data_source=data_source, generator=generator)
         return None
+
+class AugmentedRandomSampler(torch.utils.data.Sampler):
+    def __init__(
+        self,
+        non_augmented_size,
+        data_source=None,
+        generator=None,
+        *args,
+        **kwargs,
+    ):
+        self.data_source = data_source
+        self.generator = generator
+        
+        self.non_augmented_size = non_augmented_size
+        self.total_size = len(data_source)
+        self.augmented_size = self.total_size - self.non_augmented_size
+        
+        # Prepare separate indices for regular and augmented data
+        self.regular_indices = None
+        self.augmented_indices = None
+        self.regular_position = 0
+        self.augmented_position = 0
+        
+        # Default to regular data
+        self.sample_augmented = False
+        
+        # Reset for the first epoch
+        self.reset_indices()
+        
+        super().__init__(*args, **kwargs)
+        
+    def reset_indices(self):
+        """Reset and reshuffle all indices for a new epoch"""
+        if self.generator is None:
+            seed = int(torch.empty((), dtype=torch.int64).random_().item())
+            generator = torch.Generator()
+            generator.manual_seed(seed)
+        else:
+            generator = self.generator
+            
+        # Shuffle both sets of indices
+        self.regular_indices = torch.randperm(self.non_augmented_size, generator=generator).tolist()
+        self.augmented_indices = (torch.randperm(self.augmented_size, generator=generator) + 
+                                 self.non_augmented_size).tolist()
+        
+        # Reset positions
+        self.regular_position = 0
+        self.augmented_position = 0
+    
+    def __iter__(self):
+        return self
+    
+    def __next__(self):
+        if self.sample_augmented:
+            # Check if we've exhausted augmented indices
+            if self.augmented_position >= len(self.augmented_indices):
+                self.reset_indices()  # Start a new epoch
+                
+            # Get next augmented index
+            idx = self.augmented_indices[self.augmented_position]
+            self.augmented_position += 1
+            return idx
+        else:
+            # Check if we've exhausted regular indices
+            if self.regular_position >= len(self.regular_indices):
+                self.reset_indices()  # Start a new epoch
+                
+            # Get next regular index
+            idx = self.regular_indices[self.regular_position]
+            self.regular_position += 1
+            return idx
+    
+    def __len__(self):
+        return self.total_size  # Total size for DataLoader's benefit
+    
+    def set_augmented(self):
+        """Switch to sampling from augmented data"""
+        self.sample_augmented = True
+    
+    def set_regular(self):
+        """Switch to sampling from regular data"""
+        self.sample_augmented = False

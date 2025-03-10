@@ -103,6 +103,10 @@ class IDQL(PolicyAlgo, ValueAlgo):
             })
         })
 
+        try:
+            self.action_augmentation = self.algo_config.action_augmentation
+        except RuntimeError:
+            self.action_augmentation = False
             
         # self.mask_generator = LowdimMaskGenerator(
         #     action_dim=self.ac_dim,
@@ -266,29 +270,32 @@ class IDQL(PolicyAlgo, ValueAlgo):
             # Always run super call first
             info = super().train_on_batch(batch, epoch, validate=validate)
 
-            if self.multi_step_method == MultiStepMethod.REPEAT:
-                q_preds = []
-                v_preds = []
-                for i in range(Tp):
-                    # Compute loss for critic(s)
-                    if not self.algo_config.use_bc:
-                        critic_losses, vf_loss, critic_info = self._compute_critic_loss(batch, i)
-                        q_preds.append(critic_info["vf/q_pred"])
-                        v_preds.append(critic_info["vf/v_pred"])
+            # if self.multi_step_method == MultiStepMethod.REPEAT:
+            #     q_preds = []
+            #     v_preds = []
+            #     for i in range(Tp):
+            #         # Compute loss for critic(s)
+            #         if not self.algo_config.use_bc:
+            #             critic_losses, vf_loss, critic_info = self._compute_critic_loss(batch, i)
+            #             q_preds.append(critic_info["vf/q_pred"])
+            #             v_preds.append(critic_info["vf/v_pred"])
                         
-                        if not validate:
-                            # Critic update
-                            self._update_critic(critic_losses, vf_loss)
+            #             if not validate:
+            #                 # Critic update
+            #                 self._update_critic(critic_losses, vf_loss)
                 
-                # Compute loss for actor
-                actor_loss, actor_info = self._compute_actor_loss(batch, q_preds, v_preds)
+            #     # Compute loss for actor
+            #     actor_loss, actor_info = self._compute_actor_loss(batch, q_preds, v_preds)
 
-                if not validate and epoch >= actor_freeze_until_epoch:                
-                    # Actor update
-                    self._update_actor(actor_loss)
-            elif self.multi_step_method == MultiStepMethod.ONE_STEP:
+            #     if not validate and epoch >= actor_freeze_until_epoch:                
+            #         # Actor update
+            #         self._update_actor(actor_loss)
+            if self.multi_step_method == MultiStepMethod.ONE_STEP:    
+                using_augmented = self.action_augmentation and epoch % 2 == 0
+                # don't update critic if using augmented data b/c the next obs is wrong
+                
                 # Compute loss for critic(s)
-                if not self.algo_config.use_bc:
+                if not self.algo_config.use_bc and not using_augmented:
                     critic_losses, vf_loss, critic_info = self._compute_critic_loss(batch)
                     q_pred = critic_info["vf/q_pred"]
                     v_pred = critic_info["vf/v_pred"]
@@ -301,7 +308,7 @@ class IDQL(PolicyAlgo, ValueAlgo):
 
                 if not validate:
                     # Critic update
-                    if not self.algo_config.use_bc:
+                    if not self.algo_config.use_bc and not using_augmented:
                         self._update_critic(critic_losses, vf_loss)
                     
                     # Actor update

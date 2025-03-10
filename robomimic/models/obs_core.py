@@ -319,6 +319,7 @@ class DinoV2Core(EncoderCore, Module):
         input_shape,
         backbone_name="dinov2_vits14",
         frozen=True,
+        concatenate=False,
     ):
         super(DinoV2Core, self).__init__(input_shape=input_shape)
         
@@ -332,6 +333,7 @@ class DinoV2Core(EncoderCore, Module):
         ])
         
         self.frozen = frozen
+        self.concatenate = concatenate
         
         self.feature_dimensions = {
             'dinov2_vits14': 384,
@@ -359,7 +361,10 @@ class DinoV2Core(EncoderCore, Module):
         patch_tokens = nn.functional.avg_pool2d(patch_tokens.pow(4), (patch_dim, patch_dim)).pow(1/4).reshape(patch_tokens.shape[0], -1)
         
         # Concatenate with class token
-        features = torch.cat([class_tokens, patch_tokens], dim=-1)
+        if self.concatenate:
+            features = torch.cat([class_tokens, patch_tokens], dim=-1)
+        else:
+            features = patch_tokens
 
         features = features.flatten(start_dim=1)
         return features

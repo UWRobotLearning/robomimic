@@ -104,3 +104,5 @@ class IDQLConfig(BaseConfig):
 
         self.algo.critic.late_fusion_key = None
         self.algo.critic.late_fusion_layer_index = 1
+        
+        self.algo.action_augmentation = False

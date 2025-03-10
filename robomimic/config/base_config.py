@@ -189,6 +189,9 @@ class BaseConfig(Config):
         # one of [None, "last"] - set to "last" to include goal observations in each batch
         self.train.goal_mode = None
 
+        self.train.augment_nearby_states = False
+        self.train.distance_threshold = 0.0
+        self.train.num_neighbors = 10
 
         ## learning config ##
         self.train.cuda = True          # use GPU or not
