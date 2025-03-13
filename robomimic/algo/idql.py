@@ -264,7 +264,8 @@ class IDQL(PolicyAlgo, ValueAlgo):
         actor_freeze_until_epoch = self.algo_config.optim_params.policy.freeze_until_epoch
         if actor_freeze_until_epoch is None:
             actor_freeze_until_epoch = -1
-
+        using_augmented = self.action_augmentation and epoch % 2 == 0
+        
         # Set the correct context for this training step
         with TorchUtils.maybe_no_grad(no_grad=validate):
             # Always run super call first
@@ -291,7 +292,7 @@ class IDQL(PolicyAlgo, ValueAlgo):
             #         # Actor update
             #         self._update_actor(actor_loss)
             if self.multi_step_method == MultiStepMethod.ONE_STEP:    
-                using_augmented = self.action_augmentation and epoch % 2 == 0
+                
                 # don't update critic if using augmented data b/c the next obs is wrong
                 
                 # Compute loss for critic(s)
@@ -319,7 +320,7 @@ class IDQL(PolicyAlgo, ValueAlgo):
             
             # Update info
             info.update(actor_info)
-            if not self.algo_config.use_bc:
+            if not self.algo_config.use_bc and not using_augmented:
                 info.update(critic_info)
 
         # Return stats
@@ -778,7 +779,6 @@ class IDQL(PolicyAlgo, ValueAlgo):
         for k in self.obs_shapes:
             # first two dimensions should be [B, T] for inputs
             assert inputs['obs'][k].ndim - 2 == len(self.obs_shapes[k])
-        import ipdb; ipdb.set_trace()
         obs_features = TensorUtils.time_distributed(inputs, self.nets['policy']['obs_encoder'], inputs_as_kwargs=True)
         assert obs_features.ndim == 3  # [B, T, D]
         B = obs_features.shape[0]

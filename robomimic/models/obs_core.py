@@ -319,7 +319,7 @@ class DinoV2Core(EncoderCore, Module):
         input_shape,
         backbone_name="dinov2_vits14",
         frozen=True,
-        concatenate=False,
+        concatenate=True,
     ):
         super(DinoV2Core, self).__init__(input_shape=input_shape)
         
