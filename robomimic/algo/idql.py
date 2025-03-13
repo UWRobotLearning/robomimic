@@ -690,24 +690,29 @@ class IDQL(PolicyAlgo, ValueAlgo):
         log["actor/loss"] = info["actor/loss"].item()
 
         if not self.algo_config.use_bc:
-            log["critic/critic1_pred"] = info["critic/critic1_pred"].item()
-            log["critic/critic1_loss"] = info["critic/critic1_loss"].item()
+            if 'critic/critic1_pred' in info:
+                log["critic/critic1_pred"] = info["critic/critic1_pred"].item()
+                log["critic/critic1_loss"] = info["critic/critic1_loss"].item()
 
-            log["vf/v_loss"] = info["vf/v_loss"].item()
+                log["vf/v_loss"] = info["vf/v_loss"].item()
 
-            self._log_data_attributes(log, info, "vf/q_pred")
-            self._log_data_attributes(log, info, "vf/v_pred")
+                
+                self._log_data_attributes(log, info, "vf/q_pred")
+                self._log_data_attributes(log, info, "vf/v_pred")
 
-            if self.algo_config.bottleneck_value:
-                self._log_data_attributes(log, info, "critic/critic1_kl_div")
-            if self.algo_config.bottleneck_policy:
-                self._log_data_attributes(log, info, "actor/kl_div")
-            if self.algo_config.spectral_norm_value:
-                self._log_data_attributes(log, info, "critic/critic1_spectral_norm")
-            if self.algo_config.spectral_norm_policy:
-                self._log_data_attributes(log, info, "actor/spectral_norm")
-            if self.algo_config.lipschitz:
-                self._log_data_attributes(log, info, "actor/lipschitz_penalty")
+            try:
+                if self.algo_config.bottleneck_value:
+                    self._log_data_attributes(log, info, "critic/critic1_kl_div")
+                if self.algo_config.bottleneck_policy:
+                    self._log_data_attributes(log, info, "actor/kl_div")
+                if self.algo_config.spectral_norm_value:
+                    self._log_data_attributes(log, info, "critic/critic1_spectral_norm")
+                if self.algo_config.spectral_norm_policy:
+                    self._log_data_attributes(log, info, "actor/spectral_norm")
+                if self.algo_config.lipschitz:
+                    self._log_data_attributes(log, info, "actor/lipschitz_penalty")
+            except KeyError:
+                pass
 
         return log
 
