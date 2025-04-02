@@ -641,54 +641,56 @@ class SequenceDataset(torch.utils.data.Dataset):
         print('SequenceDataset: Finding nearest neighbors...')
         distances_p2e, indicies_p2e = expert_nn_model.kneighbors(all_play_states, n_neighbors=min(self.num_neighbors + 1, len(all_expert_states)))
         distances_p2p, indicies_p2p = play_nn_model.kneighbors(all_play_states, n_neighbors=min(self.num_neighbors + 1, len(all_play_states)))
+                
+        for i, (distances, idxs) in enumerate(zip(distances_p2e, indicies_p2e)):
+            for (dist, idx) in zip(distances, idxs):
+                if dist > self.distance_threshold:
+                    continue
+                
+                original_obs = self.getitem_cache[play_state_to_idx[i]]['obs'].copy() 
+                neighbor_obs = self.getitem_cache[expert_state_to_idx[idx]]['obs'].copy()
+                
+                # check that gripper must be same
+                if self.gripper_key is not None and not np.all(original_obs[self.gripper_key] == neighbor_obs[self.gripper_key]):
+                    continue
+                
+                original_next_obs = self.getitem_cache[play_state_to_idx[i]]['next_obs'].copy()
+                neighbor_action = self.getitem_cache[expert_state_to_idx[idx]]['actions'].copy()
+                neighbor_reward = self.getitem_cache[expert_state_to_idx[idx]]['rewards'].copy()
+                neighbor_done = self.getitem_cache[expert_state_to_idx[idx]]['dones'].copy()
+                
+                new_data = {
+                        'obs': original_obs,
+                        'actions': neighbor_action,
+                        'next_obs': original_next_obs,
+                        'rewards': neighbor_reward,
+                        'dones': neighbor_done,
+                    }
+                self.augmented_data.append(new_data)
         
-        for i, (dist, idx) in enumerate(zip(distances_p2e[0], indicies_p2e[0])):
-            if dist > self.distance_threshold:
-                continue
+        for i, (distances, idxs) in enumerate(zip(distances_p2p, indicies_p2p)):  
+            for (dist, idx) in zip(distances, idxs):
+                if dist > self.distance_threshold:
+                    continue
+                if play_state_to_idx[i] == play_state_to_idx[idx]:
+                    continue
+                if play_state_to_demo[i] == play_state_to_demo[idx]:
+                    continue
             
-            original_obs = self.getitem_cache[play_state_to_idx[i]]['obs'].copy()
-            neighbor_obs = self.getitem_cache[expert_state_to_idx[idx]]['obs'].copy()
-            
-            # check that gripper must be same
-            if self.gripper_key is not None and (original_obs[self.gripper_key] != neighbor_obs[self.gripper_key]):
-                continue
-            
-            original_next_obs = self.getitem_cache[play_state_to_idx[i]]['next_obs'].copy()
-            neighbor_action = self.getitem_cache[expert_state_to_idx[idx]]['actions'].copy()
-            neighbor_reward = self.getitem_cache[expert_state_to_idx[idx]]['rewards'].copy()
-            neighbor_done = self.getitem_cache[expert_state_to_idx[idx]]['dones'].copy()
-            
-            new_data = {
+                original_obs = self.getitem_cache[play_state_to_idx[i]]['obs'].copy()
+                original_next_obs = self.getitem_cache[play_state_to_idx[i]]['next_obs'].copy()
+                neighbor_action = self.getitem_cache[play_state_to_idx[idx]]['actions'].copy()
+                neighbor_reward = self.getitem_cache[play_state_to_idx[idx]]['rewards'].copy()
+                neighbor_done = self.getitem_cache[play_state_to_idx[idx]]['dones'].copy()
+                
+                new_data = {
                     'obs': original_obs,
                     'actions': neighbor_action,
                     'next_obs': original_next_obs,
                     'rewards': neighbor_reward,
                     'dones': neighbor_done,
                 }
-            self.augmented_data.append(new_data)
-        
-        for i, (dist, idx) in enumerate(zip(distances_p2p[0], indicies_p2p[0])):
-            if dist > self.distance_threshold:
-                continue
-            if play_state_to_idx[i] == play_state_to_idx[idx]:
-                continue
-            if play_state_to_demo[i] == play_state_to_demo[idx]:
-                continue
-            
-            original_obs = self.getitem_cache[play_state_to_idx[i]]['obs'].copy()
-            original_next_obs = self.getitem_cache[play_state_to_idx[i]]['next_obs'].copy()
-            neighbor_action = self.getitem_cache[play_state_to_idx[idx]]['actions'].copy()
-            neighbor_reward = self.getitem_cache[play_state_to_idx[idx]]['rewards'].copy()
-            neighbor_done = self.getitem_cache[play_state_to_idx[idx]]['dones'].copy()
-            
-            new_data = {
-                'obs': original_obs,
-                'actions': neighbor_action,
-                'next_obs': original_next_obs,
-                'rewards': neighbor_reward,
-                'dones': neighbor_done,
-            }
-            self.augmented_data.append(new_data)
+                self.augmented_data.append(new_data)
         
         print(f"SequenceDataset: Created augmentation data for {len(self.augmented_data)} states")
 
