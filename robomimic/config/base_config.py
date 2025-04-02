@@ -192,6 +192,9 @@ class BaseConfig(Config):
         self.train.augment_nearby_states = False
         self.train.distance_threshold = 0.0
         self.train.num_neighbors = 10
+        self.train.advanced_augmentation = False
+        self.train.augment_init_cutoff_thresh = 20
+        self.train.gripper_key = None
 
         ## learning config ##
         self.train.cuda = True          # use GPU or not

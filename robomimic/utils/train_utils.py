@@ -165,6 +165,9 @@ def dataset_factory(config, obs_keys, filter_by_attribute=None, dataset_path=Non
         augment_nearby_states=config.train.augment_nearby_states,
         distance_threshold=config.train.distance_threshold,
         num_neighbors=config.train.num_neighbors,
+        advanced_augmentation=config.train.advanced_augmentation,
+        augment_init_cutoff_thresh=config.train.augment_init_cutoff_thresh,
+        gripper_key=config.train.gripper_key,
     )
     dataset = SequenceDataset(**ds_kwargs)
 

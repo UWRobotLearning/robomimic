@@ -36,6 +36,9 @@ class SequenceDataset(torch.utils.data.Dataset):
         q_transformer=False,
         support_update=False,
         augment_nearby_states=False,
+        advanced_augmentation=False,
+        augment_init_cutoff_thresh=20,
+        gripper_key='gripper',
         distance_threshold=0.0,
         num_neighbors=10,
     ):
@@ -114,6 +117,9 @@ class SequenceDataset(torch.utils.data.Dataset):
         self.augment_nearby_states = augment_nearby_states
         self.distance_threshold = distance_threshold
         self.num_neighbors = num_neighbors
+        self.gripper_key = gripper_key
+        self.augment_init_cutoff_thresh = augment_init_cutoff_thresh
+        self.advanced_augmentation = advanced_augmentation
 
         self.goal_mode = goal_mode
         if self.goal_mode is not None:
@@ -183,7 +189,10 @@ class SequenceDataset(torch.utils.data.Dataset):
                         self.image_feature_extractor.to(self.model_device)
                         self.image_feature_extractor.eval()
                         
-                    self.build_state_augmentation_data()
+                    if self.advanced_augmentation:
+                        self.build_state_augmentation_data_advanced()
+                    else:
+                        self.build_state_augmentation_data()
         else:
             self.hdf5_cache = None
 
@@ -582,6 +591,107 @@ class SequenceDataset(torch.utils.data.Dataset):
                 self.augmented_data.append(new_data)
         
         print(f"SequenceDataset: Created augmentation data for {len(self.augmented_data)} states")
+        
+    def build_state_augmentation_data_advanced(self):
+        # Extract all states from the dataset
+        all_expert_states = []
+        expert_state_to_demo = []  # Maps state index to demo_id
+        expert_state_to_idx = []   # Maps state index to index in original dataset
+        
+        all_play_states = []
+        play_state_to_demo = []
+        play_state_to_idx = []
+        
+        print('SequenceDataset: Extracting features from states... (advanced)')
+        for idx in LogUtils.custom_tqdm(range(self.total_num_sequences)):
+            data = self.getitem_cache[idx]
+            
+            demo_start_index = self._demo_id_to_start_indices[self._index_to_demo_id[idx]]
+            demo_index_offset = 0 if self.pad_frame_stack else (self.n_frame_stack - 1)
+            index_in_demo = idx - demo_start_index + demo_index_offset
+            
+            if index_in_demo < self.augment_init_cutoff_thresh:
+                continue
+            
+            if np.all(data['rewards'] == 0):
+                all_play_states.append(self._extract_state_for_distance(data["obs"]))
+                play_state_to_demo.append(self._index_to_demo_id[idx])
+                play_state_to_idx.append(idx)
+
+            else:
+                all_expert_states.append(self._extract_state_for_distance(data["obs"]))
+                expert_state_to_demo.append(self._index_to_demo_id[idx])
+                expert_state_to_idx.append(idx)
+
+        # Convert to numpy array for efficient computation
+        all_expert_states = np.array(all_expert_states)
+        all_play_states = np.array(all_play_states)
+        
+        # For each state, find nearby states from different trajectories
+        self.augmented_data = []
+        
+        from sklearn.neighbors import NearestNeighbors
+        # Build KNN model
+        expert_nn_model = NearestNeighbors(n_neighbors=min(self.num_neighbors + 1, len(all_expert_states)))
+        expert_nn_model.fit(all_expert_states)
+        
+        play_nn_model = NearestNeighbors(n_neighbors=min(self.num_neighbors + 1, len(all_play_states)))
+        play_nn_model.fit(all_play_states)
+        
+        print('SequenceDataset: Finding nearest neighbors...')
+        distances_p2e, indicies_p2e = expert_nn_model.kneighbors(all_play_states, n_neighbors=min(self.num_neighbors + 1, len(all_expert_states)))
+        distances_p2p, indicies_p2p = play_nn_model.kneighbors(all_play_states, n_neighbors=min(self.num_neighbors + 1, len(all_play_states)))
+        
+        for i, (dist, idx) in enumerate(zip(distances_p2e[0], indicies_p2e[0])):
+            if dist > self.distance_threshold:
+                continue
+            
+            original_obs = self.getitem_cache[play_state_to_idx[i]]['obs'].copy()
+            neighbor_obs = self.getitem_cache[expert_state_to_idx[idx]]['obs'].copy()
+            
+            # check that gripper must be same
+            if self.gripper_key is not None and (original_obs[self.gripper_key] != neighbor_obs[self.gripper_key]):
+                continue
+            
+            original_next_obs = self.getitem_cache[play_state_to_idx[i]]['next_obs'].copy()
+            neighbor_action = self.getitem_cache[expert_state_to_idx[idx]]['actions'].copy()
+            neighbor_reward = self.getitem_cache[expert_state_to_idx[idx]]['rewards'].copy()
+            neighbor_done = self.getitem_cache[expert_state_to_idx[idx]]['dones'].copy()
+            
+            new_data = {
+                    'obs': original_obs,
+                    'actions': neighbor_action,
+                    'next_obs': original_next_obs,
+                    'rewards': neighbor_reward,
+                    'dones': neighbor_done,
+                }
+            self.augmented_data.append(new_data)
+        
+        for i, (dist, idx) in enumerate(zip(distances_p2p[0], indicies_p2p[0])):
+            if dist > self.distance_threshold:
+                continue
+            if play_state_to_idx[i] == play_state_to_idx[idx]:
+                continue
+            if play_state_to_demo[i] == play_state_to_demo[idx]:
+                continue
+            
+            original_obs = self.getitem_cache[play_state_to_idx[i]]['obs'].copy()
+            original_next_obs = self.getitem_cache[play_state_to_idx[i]]['next_obs'].copy()
+            neighbor_action = self.getitem_cache[play_state_to_idx[idx]]['actions'].copy()
+            neighbor_reward = self.getitem_cache[play_state_to_idx[idx]]['rewards'].copy()
+            neighbor_done = self.getitem_cache[play_state_to_idx[idx]]['dones'].copy()
+            
+            new_data = {
+                'obs': original_obs,
+                'actions': neighbor_action,
+                'next_obs': original_next_obs,
+                'rewards': neighbor_reward,
+                'dones': neighbor_done,
+            }
+            self.augmented_data.append(new_data)
+        
+        print(f"SequenceDataset: Created augmentation data for {len(self.augmented_data)} states")
+
 
     def _extract_state_for_distance(self, obs_dict):
         """
