@@ -41,6 +41,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         gripper_key='gripper',
         distance_threshold=0.0,
         num_neighbors=10,
+        augment_play=True,
     ):
         """
         Dataset class for fetching sequences of experience.
@@ -120,6 +121,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         self.gripper_key = gripper_key
         self.augment_init_cutoff_thresh = augment_init_cutoff_thresh
         self.advanced_augmentation = advanced_augmentation
+        self.augment_play = augment_play
 
         self.goal_mode = goal_mode
         if self.goal_mode is not None:
@@ -668,29 +670,30 @@ class SequenceDataset(torch.utils.data.Dataset):
                     }
                 self.augmented_data.append(new_data)
         
-        for i, (distances, idxs) in enumerate(zip(distances_p2p, indicies_p2p)):  
-            for (dist, idx) in zip(distances, idxs):
-                if dist > self.distance_threshold:
-                    continue
-                if play_state_to_idx[i] == play_state_to_idx[idx]:
-                    continue
-                if play_state_to_demo[i] == play_state_to_demo[idx]:
-                    continue
-            
-                original_obs = self.getitem_cache[play_state_to_idx[i]]['obs'].copy()
-                original_next_obs = self.getitem_cache[play_state_to_idx[i]]['next_obs'].copy()
-                neighbor_action = self.getitem_cache[play_state_to_idx[idx]]['actions'].copy()
-                neighbor_reward = self.getitem_cache[play_state_to_idx[idx]]['rewards'].copy()
-                neighbor_done = self.getitem_cache[play_state_to_idx[idx]]['dones'].copy()
+        if self.augment_play:
+            for i, (distances, idxs) in enumerate(zip(distances_p2p, indicies_p2p)):  
+                for (dist, idx) in zip(distances, idxs):
+                    if dist > self.distance_threshold:
+                        continue
+                    if play_state_to_idx[i] == play_state_to_idx[idx]:
+                        continue
+                    if play_state_to_demo[i] == play_state_to_demo[idx]:
+                        continue
                 
-                new_data = {
-                    'obs': original_obs,
-                    'actions': neighbor_action,
-                    'next_obs': original_next_obs,
-                    'rewards': neighbor_reward,
-                    'dones': neighbor_done,
-                }
-                self.augmented_data.append(new_data)
+                    original_obs = self.getitem_cache[play_state_to_idx[i]]['obs'].copy()
+                    original_next_obs = self.getitem_cache[play_state_to_idx[i]]['next_obs'].copy()
+                    neighbor_action = self.getitem_cache[play_state_to_idx[idx]]['actions'].copy()
+                    neighbor_reward = self.getitem_cache[play_state_to_idx[idx]]['rewards'].copy()
+                    neighbor_done = self.getitem_cache[play_state_to_idx[idx]]['dones'].copy()
+                    
+                    new_data = {
+                        'obs': original_obs,
+                        'actions': neighbor_action,
+                        'next_obs': original_next_obs,
+                        'rewards': neighbor_reward,
+                        'dones': neighbor_done,
+                    }
+                    self.augmented_data.append(new_data)
         
         print(f"SequenceDataset: Created augmentation data for {len(self.augmented_data)} states")
 

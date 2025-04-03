@@ -168,6 +168,7 @@ def dataset_factory(config, obs_keys, filter_by_attribute=None, dataset_path=Non
         advanced_augmentation=config.train.advanced_augmentation,
         augment_init_cutoff_thresh=config.train.augment_init_cutoff_thresh,
         gripper_key=config.train.gripper_key,
+        augment_play=config.train.augment_play,
     )
     dataset = SequenceDataset(**ds_kwargs)
 
