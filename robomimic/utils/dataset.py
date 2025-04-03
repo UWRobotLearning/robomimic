@@ -645,6 +645,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         distances_p2p, indicies_p2p = play_nn_model.kneighbors(all_play_states, n_neighbors=min(self.num_neighbors + 1, len(all_play_states)))
                 
         for i, (distances, idxs) in enumerate(zip(distances_p2e, indicies_p2e)):
+            print(distances)
             for (dist, idx) in zip(distances, idxs):
                 if dist > self.distance_threshold:
                     continue
