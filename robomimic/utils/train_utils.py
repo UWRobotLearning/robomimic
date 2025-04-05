@@ -167,6 +167,7 @@ def dataset_factory(config, obs_keys, filter_by_attribute=None, dataset_path=Non
         num_neighbors=config.train.num_neighbors,
         advanced_augmentation=config.train.advanced_augmentation,
         augment_init_cutoff_thresh=config.train.augment_init_cutoff_thresh,
+        augment_init_cutoff_thresh_expert=config.train.augment_init_cutoff_thresh_expert,
         gripper_key=config.train.gripper_key,
         augment_play=config.train.augment_play,
     )

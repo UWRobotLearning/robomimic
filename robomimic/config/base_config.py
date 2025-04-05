@@ -193,7 +193,8 @@ class BaseConfig(Config):
         self.train.distance_threshold = 0.0
         self.train.num_neighbors = 10
         self.train.advanced_augmentation = False
-        self.train.augment_init_cutoff_thresh = 20
+        self.train.augment_init_cutoff_thresh = 50
+        self.train.augment_init_cutoff_thresh_expert = 20
         self.train.gripper_key = None
         self.train.augment_play = True
 

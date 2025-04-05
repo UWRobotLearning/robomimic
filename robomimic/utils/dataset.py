@@ -37,7 +37,8 @@ class SequenceDataset(torch.utils.data.Dataset):
         support_update=False,
         augment_nearby_states=False,
         advanced_augmentation=False,
-        augment_init_cutoff_thresh=20,
+        augment_init_cutoff_thresh=50,
+        augment_init_cutoff_thresh_expert=20,
         gripper_key='gripper',
         distance_threshold=0.0,
         num_neighbors=10,
@@ -120,6 +121,7 @@ class SequenceDataset(torch.utils.data.Dataset):
         self.num_neighbors = num_neighbors
         self.gripper_key = gripper_key
         self.augment_init_cutoff_thresh = augment_init_cutoff_thresh
+        self.augment_init_cutoff_thresh_expert = augment_init_cutoff_thresh_expert
         self.advanced_augmentation = advanced_augmentation
         self.augment_play = augment_play
 
@@ -611,16 +613,19 @@ class SequenceDataset(torch.utils.data.Dataset):
             demo_start_index = self._demo_id_to_start_indices[self._index_to_demo_id[idx]]
             demo_index_offset = 0 if self.pad_frame_stack else (self.n_frame_stack - 1)
             index_in_demo = idx - demo_start_index + demo_index_offset
-            
-            if index_in_demo < self.augment_init_cutoff_thresh:
-                continue
-            
+                        
             if np.all(data['rewards'] == 0):
+                if index_in_demo < self.augment_init_cutoff_thresh:
+                    continue
+
                 all_play_states.append(self._extract_state_for_distance(data["obs"]))
                 play_state_to_demo.append(self._index_to_demo_id[idx])
                 play_state_to_idx.append(idx)
 
             else:
+                if index_in_demo < self.augment_init_cutoff_thresh_expert:
+                    continue
+                
                 all_expert_states.append(self._extract_state_for_distance(data["obs"]))
                 expert_state_to_demo.append(self._index_to_demo_id[idx])
                 expert_state_to_idx.append(idx)
