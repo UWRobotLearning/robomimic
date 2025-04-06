@@ -43,6 +43,8 @@ class SequenceDataset(torch.utils.data.Dataset):
         distance_threshold=0.0,
         num_neighbors=10,
         augment_play=True,
+        mask_augmentation=False,
+        proprio_keys=None,
     ):
         """
         Dataset class for fetching sequences of experience.
@@ -124,6 +126,8 @@ class SequenceDataset(torch.utils.data.Dataset):
         self.augment_init_cutoff_thresh_expert = augment_init_cutoff_thresh_expert
         self.advanced_augmentation = advanced_augmentation
         self.augment_play = augment_play
+        self.mask_augmentation = mask_augmentation
+        self.proprio_keys = proprio_keys
 
         self.goal_mode = goal_mode
         if self.goal_mode is not None:
@@ -193,8 +197,13 @@ class SequenceDataset(torch.utils.data.Dataset):
                         self.image_feature_extractor.to(self.model_device)
                         self.image_feature_extractor.eval()
                         
+                    if self.advanced_augmentation and self.mask_augmentation:
+                        raise ValueError("Advanced augmentation and mask augmentation cannot be used together")
+                        
                     if self.advanced_augmentation:
                         self.build_state_augmentation_data_advanced()
+                    elif self.mask_augmentation:
+                        self.build_state_augmentation_data_segmentation()
                     else:
                         self.build_state_augmentation_data()
         else:
@@ -703,6 +712,215 @@ class SequenceDataset(torch.utils.data.Dataset):
         
         print(f"SequenceDataset: Created augmentation data for {len(self.augmented_data)} states")
 
+    def build_state_augmentation_data_segmentation(self):
+        # Extract all states from the dataset
+        all_expert_states = []
+        expert_state_to_demo = []  # Maps state index to demo_id
+        expert_state_to_idx = []   # Maps state index to index in original dataset
+        
+        all_play_states = []
+        play_state_to_demo = []
+        play_state_to_idx = []
+        
+        print('SequenceDataset: Extracting features from states... (advanced)')
+        for idx in LogUtils.custom_tqdm(range(self.total_num_sequences)):
+            data = self.getitem_cache[idx]
+            
+            demo_id = self._index_to_demo_id[idx]
+            
+            demo_start_index = self._demo_id_to_start_indices[demo_id]
+            demo_index_offset = 0 if self.pad_frame_stack else (self.n_frame_stack - 1)
+            index_in_demo = idx - demo_start_index + demo_index_offset
+            
+            object_masks = self.hdf5_file['data'][demo_id]['object_mask'][f'frame_{index_in_demo}']
+                        
+            if np.all(data['rewards'] == 0):
+                mask_features = self._extract_mask_state_for_distance(object_masks)
+                proprio_features = self._extract_proprio_state_for_distance(data["obs"])    
+                state = np.concatenate([mask_features, proprio_features])
+                
+                all_play_states.append(state)
+                play_state_to_demo.append(self._index_to_demo_id[idx])
+                play_state_to_idx.append(idx)
+
+            else:
+                mask_features = self._extract_mask_state_for_distance(object_masks)
+                proprio_features = self._extract_proprio_state_for_distance(data["obs"])    
+                state = np.concatenate([mask_features, proprio_features])
+                
+                all_expert_states.append(state)
+                expert_state_to_demo.append(self._index_to_demo_id[idx])
+                expert_state_to_idx.append(idx)
+
+        all_expert_states = np.array(all_expert_states)
+        all_play_states = np.array(all_play_states)
+        
+        # For each state, find nearby states from different trajectories
+        self.augmented_data = []
+        
+        from sklearn.neighbors import NearestNeighbors
+        # Build KNN model
+        expert_nn_model = NearestNeighbors(n_neighbors=min(self.num_neighbors + 1, len(all_expert_states)))
+        expert_nn_model.fit(all_expert_states)
+        
+        play_nn_model = NearestNeighbors(n_neighbors=min(self.num_neighbors + 1, len(all_play_states)))
+        play_nn_model.fit(all_play_states)
+        
+        print('SequenceDataset: Finding nearest neighbors...')
+        distances_p2e, indicies_p2e = expert_nn_model.kneighbors(all_play_states, n_neighbors=min(self.num_neighbors + 1, len(all_expert_states)))
+        distances_p2p, indicies_p2p = play_nn_model.kneighbors(all_play_states, n_neighbors=min(self.num_neighbors + 1, len(all_play_states)))
+                
+        for i, (distances, idxs) in enumerate(zip(distances_p2e, indicies_p2e)):
+            print(distances)
+            for (dist, idx) in zip(distances, idxs):
+                if dist > self.distance_threshold:
+                    continue
+                
+                original_obs = self.getitem_cache[play_state_to_idx[i]]['obs'].copy() 
+                neighbor_obs = self.getitem_cache[expert_state_to_idx[idx]]['obs'].copy()
+                
+                # check that gripper must be same
+                if self.gripper_key is not None and not np.all(original_obs[self.gripper_key] == neighbor_obs[self.gripper_key]):
+                    continue
+                
+                original_next_obs = self.getitem_cache[play_state_to_idx[i]]['next_obs'].copy()
+                neighbor_action = self.getitem_cache[expert_state_to_idx[idx]]['actions'].copy()
+                neighbor_reward = self.getitem_cache[expert_state_to_idx[idx]]['rewards'].copy()
+                neighbor_done = self.getitem_cache[expert_state_to_idx[idx]]['dones'].copy()
+                
+                new_data = {
+                        'obs': original_obs,
+                        'actions': neighbor_action,
+                        'next_obs': original_next_obs,
+                        'rewards': neighbor_reward,
+                        'dones': neighbor_done,
+                    }
+                self.augmented_data.append(new_data)
+        
+        if self.augment_play:
+            for i, (distances, idxs) in enumerate(zip(distances_p2p, indicies_p2p)):  
+                for (dist, idx) in zip(distances, idxs):
+                    if dist > self.distance_threshold:
+                        continue
+                    if play_state_to_idx[i] == play_state_to_idx[idx]:
+                        continue
+                    if play_state_to_demo[i] == play_state_to_demo[idx]:
+                        continue
+                
+                    original_obs = self.getitem_cache[play_state_to_idx[i]]['obs'].copy()
+                    original_next_obs = self.getitem_cache[play_state_to_idx[i]]['next_obs'].copy()
+                    neighbor_action = self.getitem_cache[play_state_to_idx[idx]]['actions'].copy()
+                    neighbor_reward = self.getitem_cache[play_state_to_idx[idx]]['rewards'].copy()
+                    neighbor_done = self.getitem_cache[play_state_to_idx[idx]]['dones'].copy()
+                    
+                    new_data = {
+                        'obs': original_obs,
+                        'actions': neighbor_action,
+                        'next_obs': original_next_obs,
+                        'rewards': neighbor_reward,
+                        'dones': neighbor_done,
+                    }
+                    self.augmented_data.append(new_data)
+        
+        print(f"SequenceDataset: Created augmentation data for {len(self.augmented_data)} states")
+
+
+    def _extract_mask_state_for_distance(self, masks):
+        """
+        Extract a state representation from the mask for distance calculation.
+        Uses polar coordinates to ensure consistent ordering of contour points.
+        """
+        import cv2
+        
+        all_features = []
+        for mask_id in masks.keys():
+            mask = masks[mask_id]
+            
+            # Calculate area (sum of all True values)
+            area = np.sum(mask)
+            
+            # Calculate centroid
+            if area > 0:
+                y_indices, x_indices = np.where(mask)
+                centroid_y = np.mean(y_indices)
+                centroid_x = np.mean(x_indices)
+            else:
+                centroid_y, centroid_x = 0, 0
+            
+            # Extract contour points in polar coordinates
+            contour_features = []
+            if area > 0:
+                # Convert boolean mask to uint8 for OpenCV
+                mask_uint8 = mask.astype(np.uint8) * 255
+                
+                # Find contours
+                contours, _ = cv2.findContours(mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                
+                if contours:
+                    # Get the largest contour
+                    largest_contour = max(contours, key=cv2.contourArea)
+                    
+                    # Flatten contour for easier processing
+                    contour_flat = largest_contour.reshape(-1, 2)
+                    
+                    # Convert to polar coordinates relative to centroid
+                    polar_points = []
+                    for point in contour_flat:
+                        # Calculate relative coordinates
+                        dx = point[0] - centroid_x
+                        dy = point[1] - centroid_y
+                        
+                        # Convert to polar coordinates
+                        r = np.sqrt(dx**2 + dy**2)
+                        theta = np.arctan2(dy, dx)  # Range: [-pi, pi]
+                        
+                        polar_points.append((theta, r, point[0], point[1]))
+                    
+                    # Sort by theta to ensure consistent ordering
+                    polar_points.sort(key=lambda p: p[0])
+                    
+                    # Sample evenly in the theta domain
+                    num_points = 8
+                    theta_step = 2 * np.pi / num_points
+                    
+                    sampled_points = []
+                    for i in range(num_points):
+                        target_theta = -np.pi + i * theta_step
+                        
+                        # Find closest point by theta
+                        closest_idx = np.argmin([abs(p[0] - target_theta) for p in polar_points])
+                        r = polar_points[closest_idx][1]
+                        
+                        # Store normalized r and theta
+                        sampled_points.extend([r, target_theta])
+                    
+                    contour_features = sampled_points
+            
+            # If no contour was found or processing failed, use zeros
+            if not contour_features:
+                contour_features = [0] * num_points * 2
+            
+            # Create feature vector: [centroid_y, centroid_x, contour_points...]
+            features = np.array([centroid_y, centroid_x] + contour_features)
+            all_features.append(features)
+            
+        all_features = np.array(all_features)
+        # Normalize to make euclidean distance meaningful
+        all_features = all_features / np.linalg.norm(all_features, axis=1, keepdims=True) if np.linalg.norm(all_features, axis=1, keepdims=True) > 0 else all_features
+        
+        return all_features
+    
+    def _extract_proprio_state_for_distance(self, obs_dict):
+        """
+        Extract a state representation from the observation dictionary for distance calculation.
+        """
+        proprio = []
+        for proprio_key in self.proprio_keys:
+            proprio.append(obs_dict[proprio_key])
+        proprio = np.concatenate(proprio)
+        proprio = proprio / np.linalg.norm(proprio)
+        return proprio
+        
 
     def _extract_state_for_distance(self, obs_dict):
         """

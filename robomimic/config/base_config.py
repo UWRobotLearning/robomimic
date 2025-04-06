@@ -197,6 +197,8 @@ class BaseConfig(Config):
         self.train.augment_init_cutoff_thresh_expert = 20
         self.train.gripper_key = None
         self.train.augment_play = True
+        self.train.mask_augmentation = False
+        self.train.proprio_keys = None
 
         ## learning config ##
         self.train.cuda = True          # use GPU or not
