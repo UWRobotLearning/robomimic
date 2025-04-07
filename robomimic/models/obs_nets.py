@@ -33,6 +33,8 @@ def obs_encoder_factory(
         encoder_kwargs=None,
         stochastic=False,
         spectral_norm=False,
+        obs_multiplier_key=None,
+        obs_multiplier=1,
     ):
     """
     Utility function to create an @ObservationEncoder from kwargs specified in config.
@@ -61,7 +63,7 @@ def obs_encoder_factory(
             obs_modality2: dict
                 ...
     """
-    enc = ObservationEncoder(feature_activation=feature_activation, stochastic=stochastic, spectral_norm=spectral_norm)
+    enc = ObservationEncoder(feature_activation=feature_activation, stochastic=stochastic, spectral_norm=spectral_norm, obs_multiplier_key=obs_multiplier_key, obs_multiplier=obs_multiplier)
     for k, obs_shape in obs_shapes.items():
         obs_modality = ObsUtils.OBS_KEYS_TO_MODALITIES[k]
         enc_kwargs = deepcopy(ObsUtils.DEFAULT_ENCODER_KWARGS[obs_modality]) if encoder_kwargs is None else \
@@ -104,7 +106,7 @@ class ObservationEncoder(Module):
     Call @register_obs_key to register observation keys with the encoder and then
     finally call @make to create the encoder networks. 
     """
-    def __init__(self, feature_activation=nn.ReLU, stochastic=False, spectral_norm=False):
+    def __init__(self, feature_activation=nn.ReLU, stochastic=False, spectral_norm=False, obs_multiplier_key=None, obs_multiplier=1):
         """
         Args:
             feature_activation: non-linearity to apply after each obs net - defaults to ReLU. Pass
@@ -121,6 +123,8 @@ class ObservationEncoder(Module):
         self._locked = False
         self.stochastic = stochastic
         self.use_spectral_norm = spectral_norm
+        self.obs_multiplier_key = obs_multiplier_key
+        self.obs_multiplier = obs_multiplier
         
     def register_obs_key(
         self, 
@@ -234,6 +238,9 @@ class ObservationEncoder(Module):
         action_feat = None
         for k in self.obs_shapes:
             x = obs_dict[k]
+            if self.obs_multiplier_key is not None and k == self.obs_multiplier_key:
+                # concatenate the observation with itself @self.obs_multiplier times
+                x = torch.cat([x] * self.obs_multiplier, dim=-1)
             # maybe process encoder input with randomizer
             if self.obs_randomizers[k] is not None:
                 x = self.obs_randomizers[k].forward_in(x)
@@ -373,6 +380,9 @@ class ObservationEncoder(Module):
         feat_dim = 0
         for k in self.obs_shapes:
             feat_shape = self.obs_shapes[k]
+            if self.obs_multiplier_key is not None and k == self.obs_multiplier_key:
+                # concatenate the observation with itself @self.obs_multiplier times
+                feat_shape = feat_shape[:-1] + [feat_shape[-1] * self.obs_multiplier,]
             if self.obs_randomizers[k] is not None:
                 feat_shape = self.obs_randomizers[k].output_shape_in(feat_shape)
             if self.obs_nets[k] is not None:
@@ -493,6 +503,8 @@ class ObservationGroupEncoder(Module):
         encoder_kwargs=None,
         stochastic=False,
         spectral_norm=False,
+        obs_multiplier_key=None,
+        obs_multiplier=1,
     ):
         """
         Args:
@@ -537,6 +549,8 @@ class ObservationGroupEncoder(Module):
                 encoder_kwargs=encoder_kwargs,
                 stochastic=stochastic,
                 spectral_norm=spectral_norm,
+                obs_multiplier_key=obs_multiplier_key,
+                obs_multiplier=obs_multiplier,
             )
 
     def forward(self, **inputs):
@@ -619,6 +633,8 @@ class MIMO_MLP(Module):
         spectral_norm=False,
         late_fusion_dim=None,
         late_fusion_layer_index=1,
+        obs_multiplier_key=None,
+        obs_multiplier=1,
     ):
         """
         Args:
@@ -670,8 +686,10 @@ class MIMO_MLP(Module):
             encoder_kwargs=encoder_kwargs,
             stochastic=stochastic_encoder,
             spectral_norm=spectral_norm,
+            obs_multiplier_key=obs_multiplier_key,
+            obs_multiplier=obs_multiplier,
         )
-
+        
         # flat encoder output dimension
         mlp_input_dim = self.nets["encoder"].output_shape()[0]
         

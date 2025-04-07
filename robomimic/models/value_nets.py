@@ -33,6 +33,8 @@ class ValueNetwork(MIMO_MLP):
         spectral_norm=False,
         late_fusion_key=None,
         late_fusion_layer_index=1,
+        obs_multiplier_key=None,
+        obs_multiplier=1,
     ):
         """
         Args:
@@ -105,8 +107,10 @@ class ValueNetwork(MIMO_MLP):
             spectral_norm=spectral_norm,
             late_fusion_dim=late_fusion_dim,
             late_fusion_layer_index=late_fusion_layer_index,
+            obs_multiplier_key=obs_multiplier_key,
+            obs_multiplier=obs_multiplier,
         )
-
+        
     def _get_output_shapes(self):
         """
         Allow subclasses to re-define outputs from @MIMO_MLP, since we won't
@@ -163,6 +167,8 @@ class ActionValueNetwork(ValueNetwork):
         spectral_norm=False,
         late_fusion_key=None,
         late_fusion_layer_index=1,
+        obs_multiplier_key=None,
+        obs_multiplier=1,
     ):
         """
         Args:
@@ -202,7 +208,7 @@ class ActionValueNetwork(ValueNetwork):
         new_obs_shapes = OrderedDict(obs_shapes)
         new_obs_shapes["action"] = (ac_dim,)
         self.ac_dim = ac_dim
-
+        
         # pass to super class to instantiate network
         super(ActionValueNetwork, self).__init__(
             obs_shapes=new_obs_shapes,
@@ -214,6 +220,8 @@ class ActionValueNetwork(ValueNetwork):
             spectral_norm=spectral_norm,
             late_fusion_key=late_fusion_key,
             late_fusion_layer_index=late_fusion_layer_index,
+            obs_multiplier_key=obs_multiplier_key,
+            obs_multiplier=obs_multiplier,
         )
 
     def forward(self, obs_dict, acts, goal_dict=None):

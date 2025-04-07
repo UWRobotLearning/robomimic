@@ -145,6 +145,14 @@ class IDQL(PolicyAlgo, ValueAlgo):
             late_fusion_layer_index = self.algo_config.critic.late_fusion_layer_index
         except:
             late_fusion_layer_index = 1
+        try:
+            obs_multiplier_key = self.algo_config.critic.obs_multiplier_key
+        except:
+            obs_multiplier_key = None
+        try:
+            obs_multiplier = self.algo_config.critic.obs_multiplier
+        except:
+            obs_multiplier = 1
 
         # Critics
         self.nets["critic"] = nn.ModuleList()
@@ -161,6 +169,8 @@ class IDQL(PolicyAlgo, ValueAlgo):
                     spectral_norm=self.algo_config.spectral_norm_value,
                     late_fusion_key=late_fusion_key,
                     late_fusion_layer_index=late_fusion_layer_index,
+                    obs_multiplier_key=obs_multiplier_key,
+                    obs_multiplier=obs_multiplier,
                 )
                 net_list.append(critic)
 
@@ -174,6 +184,8 @@ class IDQL(PolicyAlgo, ValueAlgo):
             spectral_norm=False,
             late_fusion_key=late_fusion_key,
             late_fusion_layer_index=late_fusion_layer_index,
+            obs_multiplier_key=obs_multiplier_key,
+            obs_multiplier=obs_multiplier,
         )
 
         try:
